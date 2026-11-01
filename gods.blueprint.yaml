@@ -1,0 +1,50 @@
+{
+  "blueprintVersion": "1.0",
+  "project": {
+    "id": "master-gods",
+    "name": "Master GODS",
+    "version": "9.0.0",
+    "purpose": "Help users describe an application, review its requirements, and retain an evidence-aware project blueprint."
+  },
+  "requirements": [
+    {
+      "id": "REQ-BUILDER-001",
+      "description": "Users can describe an application in ordinary language and receive an editable requirement draft.",
+      "status": "VERIFIED"
+    },
+    {
+      "id": "REQ-BLUEPRINT-001",
+      "description": "Approved project requirements and planning artifacts are persisted in a project-specific gods.blueprint.yaml file.",
+      "status": "VERIFIED"
+    },
+    {
+      "id": "REQ-ORCHESTRATION-001",
+      "description": "Project task contracts and dependency-aware task states are retained for review.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-PROVIDERS-001",
+      "description": "Configured AI providers execute code-generation and verification tasks.",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "REQ-IDENTITY-001",
+      "description": "Users authenticate and receive server-enforced roles and permissions.",
+      "status": "MISSING"
+    }
+  ],
+  "runtime": {
+    "language": "JavaScript",
+    "minimumNodeVersion": "20",
+    "dependencies": [],
+    "persistence": "Local JSON project records and per-project YAML-subset blueprints"
+  },
+  "release": {
+    "productionReady": false,
+    "blockers": [
+      "No authentication or multi-user access control",
+      "No configured AI provider or code-generation workers",
+      "No database, external integrations, or deployment adapter"
+    ]
+  }
+}

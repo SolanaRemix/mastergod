@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#090d18">
+    <title>Master GODS — Build your idea</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Master GODS home">
+        <span class="brand-mark" aria-hidden="true">G</span>
+        <span>MASTER <strong>GODS</strong></span>
+      </a>
+      <div class="topbar-meta"><span class="status-dot"></span><span id="health-label">Checking local workspace…</span></div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="main-heading">
+        <p class="eyebrow">YOUR IDEA, MADE CLEAR</p>
+        <h1 id="main-heading">What do you want to build?</h1>
+        <p class="hero-copy">Describe it in your own words. GODS will organize your ideas into a plan you can review before any build work begins.</p>
+      </section>
+
+      <section class="builder glass-panel" aria-labelledby="describe-heading">
+        <div class="step-heading">
+          <span class="step-number">01</span>
+          <div>
+            <h2 id="describe-heading">Describe your idea</h2>
+            <p>No technical terms needed. Start with the problem you want to solve.</p>
+          </div>
+        </div>
+        <form id="prompt-form">
+          <label class="sr-only" for="prompt">Describe the application you want to build</label>
+          <textarea id="prompt" name="prompt" minlength="10" maxlength="10000" required placeholder="For example: I need a simple booking app for my cleaning business. Customers should choose a service and time, and I want to manage bookings from one place."></textarea>
+          <div class="form-footer">
+            <span class="helper-text">Your words stay in this local workspace.</span>
+            <button class="primary-button" type="submit"><span>Make my project plan</span><span aria-hidden="true">→</span></button>
+          </div>
+        </form>
+        <p class="notice" role="note">This starter does not use AI yet. It separates your request into editable statements locally, and will clearly flag work that needs an AI provider.</p>
+      </section>
+
+      <section id="review-section" class="glass-panel hidden" aria-labelledby="review-heading">
+        <div class="step-heading">
+          <span class="step-number">02</span>
+          <div>
+            <h2 id="review-heading">Review your project plan</h2>
+            <p>Keep or remove each item, and edit the wording so the plan reflects what you meant.</p>
+          </div>
+        </div>
+        <div id="requirement-list" class="requirement-list"></div>
+        <div class="form-footer">
+          <span id="requirement-count" class="helper-text"></span>
+          <button id="approve-button" class="primary-button" type="button">Approve this plan <span aria-hidden="true">→</span></button>
+        </div>
+      </section>
+
+      <section id="projects-section" class="projects-section" aria-labelledby="projects-heading">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">YOUR WORKSPACE</p>
+            <h2 id="projects-heading">Project plans</h2>
+          </div>
+          <span id="project-count" class="count-pill">0 projects</span>
+        </div>
+        <div id="projects-list" class="projects-list">
+          <p class="empty-state">Your project plans will appear here.</p>
+        </div>
+      </section>
+
+      <div id="live-region" class="sr-only" aria-live="polite"></div>
+      <p id="error-message" class="error-message hidden" role="alert"></p>
+    </main>
+    <footer><span>Master GODS · Beginner-first project planning</span><span>Local preview · Not production ready</span></footer>
+  </body>
+</html>
