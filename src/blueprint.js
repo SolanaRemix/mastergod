@@ -1,6 +1,5 @@
 const { randomUUID } = require("node:crypto");
-
-const MAX_REQUIREMENTS = 100;
+const { getAgent } = require("./agents");
 
 function cleanRequirementText(text) {
   return text.replace(/\s+/g, " ").trim().replace(/^[\s-*•]+/, "");
@@ -11,7 +10,6 @@ function discoverRequirements(originalRequest) {
     .split(/(?:\r?\n+|(?<=[.!?])\s+)/u)
     .map(cleanRequirementText)
     .filter(Boolean)
-    .slice(0, MAX_REQUIREMENTS);
 
   return sentences.map((text, index) => ({
     id: `REQ-USER-${String(index + 1).padStart(3, "0")}`,
@@ -23,8 +21,10 @@ function discoverRequirements(originalRequest) {
 }
 
 function titleFromRequest(request) {
-  const cleaned = request
+  const firstSentence = request.split(/(?<=[.!?])\s/u, 1)[0];
+  const cleaned = firstSentence
     .replace(/^(i want to build|i want|build me|create|make me|build)\s+/i, "")
+    .replace(/^(?:a|an|the)\s+/i, "")
     .replace(/[.!?\s]+$/g, "");
   const words = cleaned.split(/\s+/).slice(0, 7);
   if (words.length === 0 || !words[0]) return "New application";
@@ -100,8 +100,8 @@ function buildTaskGraph(project) {
     `TASK-${String(index + 1).padStart(3, "0")}`
   ]));
 
-  return plans.map(([key, agentId, dependencyKeys], index) => {
-    const agent = require("./agents").getAgent(agentId);
+  return plans.map(([key, agentId, dependencyKeys]) => {
+    const agent = getAgent(agentId);
     return {
       taskId: taskIds.get(key),
       projectId: project.id,
@@ -139,18 +139,21 @@ function approveRequirements(project, decisions) {
 
   const submitted = new Map();
   for (const decision of decisions) {
+    const normalizedText = typeof decision?.text === "string"
+      ? cleanRequirementText(decision.text)
+      : "";
     if (
       !decision
       || typeof decision.id !== "string"
       || typeof decision.text !== "string"
       || typeof decision.approved !== "boolean"
-      || decision.text.trim().length === 0
+      || normalizedText.length === 0
       || decision.text.length > 2000
       || submitted.has(decision.id)
     ) {
       throw new Error("Each requirement decision must include a unique id, non-empty text, and approval choice.");
     }
-    submitted.set(decision.id, decision);
+    submitted.set(decision.id, { ...decision, text: normalizedText });
   }
 
   if (project.requirements.some((requirement) => !submitted.has(requirement.id))) {
@@ -159,7 +162,7 @@ function approveRequirements(project, decisions) {
 
   for (const requirement of project.requirements) {
     const decision = submitted.get(requirement.id);
-    requirement.text = cleanRequirementText(decision.text);
+    requirement.text = decision.text;
     requirement.decision = decision.approved ? "APPROVED" : "REJECTED";
   }
 

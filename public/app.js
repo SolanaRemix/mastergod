@@ -70,7 +70,10 @@ function renderRequirements(project) {
   });
   updateRequirementCount();
   reviewSection.classList.remove("hidden");
-  reviewSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  reviewSection.scrollIntoView({
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    block: "start"
+  });
 }
 
 function makeTag(text, className = "status-pill") {
@@ -95,7 +98,11 @@ function renderProject(project) {
   summary.textContent = project.originalRequest;
   const metadata = document.createElement("p");
   metadata.className = "project-meta";
-  metadata.textContent = `${project.requirements.length} draft requirement${project.requirements.length === 1 ? "" : "s"} · Created ${new Date(project.createdAt).toLocaleString()}`;
+  const requirementCount = project.status === "DRAFT"
+    ? project.requirements.length
+    : project.blueprint.requirements.length;
+  const requirementLabel = project.status === "DRAFT" ? "draft requirement" : "approved requirement";
+  metadata.textContent = `${requirementCount} ${requirementLabel}${requirementCount === 1 ? "" : "s"} · Created ${new Date(project.createdAt).toLocaleString()}`;
   card.append(header, summary, metadata);
 
   if (project.tasks?.length) {

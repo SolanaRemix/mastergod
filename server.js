@@ -78,6 +78,10 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
     try {
       const url = new URL(request.url, "http://localhost");
       if (request.method === "GET" && await serveStatic(response, url.pathname)) return;
+      if (request.method === "GET" && url.pathname === "/favicon.ico") {
+        response.writeHead(204);
+        return response.end();
+      }
 
       if (request.method === "GET" && url.pathname === "/api/health") {
         return sendJson(response, 200, {
@@ -100,7 +104,14 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
 
       if (request.method === "POST" && url.pathname === "/api/projects") {
         const body = await readJson(request);
-        if (typeof body.prompt !== "string" || body.prompt.trim().length < 10 || body.prompt.length > 10000) {
+        if (
+          !body
+          || typeof body !== "object"
+          || Array.isArray(body)
+          || typeof body.prompt !== "string"
+          || body.prompt.trim().length < 10
+          || body.prompt.length > 10000
+        ) {
           return sendJson(response, 400, { error: "Describe the application in at least 10 characters (up to 10,000)." });
         }
         const project = await store.create(createDraft(body.prompt.trim()));
@@ -108,7 +119,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
       }
 
       const projectRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})(?:\/(approve|blueprint))?$/);
-      if (request.method === "GET" && projectRoute?.[2] !== "approve") {
+      if (request.method === "GET" && projectRoute && projectRoute[2] !== "approve") {
         const project = await store.get(projectRoute[1]);
         if (!project) return sendJson(response, 404, { error: "Project not found." });
         if (projectRoute[2] === "blueprint") {

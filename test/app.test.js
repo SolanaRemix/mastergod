@@ -35,6 +35,16 @@ test("requirement discovery preserves user wording and assigns stable IDs", () =
   );
 });
 
+test("requirement discovery does not silently truncate long requests", () => {
+  const prompt = Array.from({ length: 101 }, (_, index) => `Requirement ${index + 1}.`).join(" ");
+  assert.equal(discoverRequirements(prompt).length, 101);
+});
+
+test("draft names are concise and based on the first sentence", () => {
+  const project = createDraft("I want an appointment app. Customers can choose a service. Staff can manage bookings.");
+  assert.equal(project.title, "Appointment app");
+});
+
 test("approval persists accepted requirements and a dependency-aware blocked task graph", () => {
   const project = createDraft("Customers book appointments. Staff manage schedules.");
   approveRequirements(project, project.requirements.map((requirement) => ({
@@ -50,6 +60,15 @@ test("approval persists accepted requirements and a dependency-aware blocked tas
   assert.equal(project.tasks[1].dependencies[0], project.tasks[0].taskId);
   assert.ok(project.tasks.every((task) => task.requirementIds.length === 2));
   assert.equal(buildTaskGraph(project)[0].assignedAgent.id, "systems-architect");
+});
+
+test("approval rejects requirement edits that normalize to empty text", () => {
+  const project = createDraft("Customers can make bookings.");
+  assert.throws(() => approveRequirements(project, [{
+    id: project.requirements[0].id,
+    text: "- *",
+    approved: true
+  }]), /non-empty text/);
 });
 
 test("agent catalog declares complete contracts without overstating provider execution", () => {
@@ -96,6 +115,18 @@ test("project creation, approval, blueprint download, and persistence work end t
 });
 
 test("project endpoints reject invalid content types and unmatched decisions", async () => {
+  const unknownRoute = await fetch(`${baseUrl}/api/not-a-route`);
+  assert.equal(unknownRoute.status, 404);
+  const favicon = await fetch(`${baseUrl}/favicon.ico`);
+  assert.equal(favicon.status, 204);
+
+  const invalidBody = await fetch(`${baseUrl}/api/projects`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "null"
+  });
+  assert.equal(invalidBody.status, 400);
+
   const wrongContentType = await fetch(`${baseUrl}/api/projects`, { method: "POST", body: "{}" });
   assert.equal(wrongContentType.status, 415);
 
