@@ -80,6 +80,14 @@ before(async () => {
         response.writeHead(200, { "content-type": "application/json" });
         return response.end("{not-json");
       }
+      if (upstreamMode === "slow-body") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.write('{"choices":');
+        setTimeout(() => {
+          if (!response.destroyed) response.end("[]}");
+        }, 100);
+        return;
+      }
       if (upstreamMode === "malformed-discovery") {
         return sendJson(response, 200, { choices: [{ message: { content: "{}" } }] });
       }
@@ -385,7 +393,28 @@ test("OpenAI-compatible adapter maps auth, rate-limit, server, timeout, and inva
   await assert.rejects(request(1000, PRODUCT_DISCOVERY_SCHEMA), (error) => error.code === "PROVIDER_INVALID_RESPONSE");
   upstreamMode = "timeout";
   await assert.rejects(request(30), (error) => error.code === "PROVIDER_TIMEOUT");
+  upstreamMode = "slow-body";
+  await assert.rejects(request(30), (error) => error.code === "PROVIDER_TIMEOUT");
   upstreamMode = "ok";
+
+  const slowLookupAdapter = new OpenAICompatibleAdapter({
+    lookup: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return [{ address: "8.8.8.8", family: 4 }];
+    },
+    fetchImpl: async () => {
+      throw new Error("Fetch should not run after lookup timeout.");
+    },
+    sleep: async () => {}
+  });
+  await assert.rejects(slowLookupAdapter.complete({
+    apiKey: API_KEY,
+    endpoint: "https://api.openai.com/v1"
+  }, {
+    model: "gods-test-model",
+    messages: [],
+    timeoutMs: 30
+  }), (error) => error.code === "PROVIDER_TIMEOUT");
 });
 
 test("model router deterministically selects a configured provider and records blocked decisions", async () => {

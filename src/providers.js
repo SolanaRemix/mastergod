@@ -68,6 +68,27 @@ function assertProductionSecretKey(environment = process.env) {
   if (environment.NODE_ENV === "production") encryptionKey(environment.GODS_SECRET_KEY);
 }
 
+function awaitWithSignal(promise, signal) {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(new Error("Provider operation aborted."));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      }
+    );
+    if (signal.aborted) onAbort();
+  });
+}
+
 function isPrivateAddress(address) {
   const normalized = String(address).toLowerCase().split("%")[0];
   if (net.isIPv4(normalized)) {
@@ -260,12 +281,22 @@ class OpenAICompatibleAdapter {
   }
 
   async request(endpoint, pathname, apiKey, options = {}) {
-    const base = await validateProviderEndpoint(endpoint, { allowLocal: this.allowLocal, lookup: this.lookup });
-    const url = new URL(pathname.replace(/^\//, ""), `${base.href.replace(/\/+$/, "")}/`);
     const timeoutSignal = AbortSignal.timeout(options.timeoutMs || 15_000);
     const signals = [timeoutSignal];
     if (options.signal) signals.push(options.signal);
     const signal = AbortSignal.any(signals);
+    let base;
+    try {
+      base = await awaitWithSignal(
+        validateProviderEndpoint(endpoint, { allowLocal: this.allowLocal, lookup: this.lookup }),
+        signal
+      );
+    } catch (error) {
+      if (options.signal?.aborted) throw Object.assign(new ProviderError("PROVIDER_TIMEOUT", "Provider request was cancelled."), { retryable: false });
+      if (timeoutSignal.aborted) throw new ProviderError("PROVIDER_TIMEOUT", "Provider request timed out.", { retryable: true });
+      throw error;
+    }
+    const url = new URL(pathname.replace(/^\//, ""), `${base.href.replace(/\/+$/, "")}/`);
     try {
       const response = await this.fetchImpl(url, {
         method: options.method || "GET",
