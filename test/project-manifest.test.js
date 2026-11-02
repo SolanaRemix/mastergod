@@ -15,7 +15,8 @@ test("implementation manifest uses recorded evidence and never equates task comp
     requirements: [
       { id: "REQ-1", text: "Save a generated page.", decision: "APPROVED" },
       { id: "REQ-2", text: "Connect GitHub.", decision: "APPROVED" },
-      { id: "REQ-3", text: "Rejected item.", decision: "REJECTED" }
+      { id: "REQ-3", text: "Rejected item.", decision: "REJECTED" },
+      { id: "REQ-4", text: "Create a user-managed file.", decision: "APPROVED" }
     ]
   };
   const manifest = createProjectImplementationManifest({
@@ -38,6 +39,10 @@ test("implementation manifest uses recorded evidence and never equates task comp
         path: "generated-app/index.html", version: 1, checksum: "abc123", sizeBytes: 128,
         status: "IMPLEMENTED_UNVERIFIED", responsibleAgent: "code-generation-agent",
         taskId: "TASK-1", requirementIds: ["REQ-1"], updatedAt: "2026-11-02T00:00:01.000Z"
+      }, {
+        path: "docs/notes.md", version: 1, checksum: "def456", sizeBytes: 64,
+        status: "IMPLEMENTED_UNVERIFIED", responsibleAgent: "project-owner",
+        taskId: "PROJECT-IMPORT-1", requirementIds: ["REQ-4"], updatedAt: "2026-11-02T00:00:03.000Z"
       }]
     },
     builds: []
@@ -48,6 +53,9 @@ test("implementation manifest uses recorded evidence and never equates task comp
   assert.equal(manifest.requirements[0].files[0].path, "generated-app/index.html");
   assert.equal(manifest.requirements[1].status, "BLOCKED");
   assert.equal(manifest.requirements[2].status, "NOT_APPLICABLE");
+  assert.equal(manifest.requirements[3].status, "IMPLEMENTED_UNVERIFIED");
+  assert.equal(manifest.requirements[3].tasks.length, 0);
+  assert.equal(manifest.requirements[3].files[0].path, "docs/notes.md");
   assert.equal(manifest.automatedTests.status, "UNKNOWN");
   assert.equal(manifest.externalIntegrations.github.status, "BLOCKED");
   assert.equal(validateManifestStatuses(manifest), true);

@@ -15,13 +15,15 @@ function isApproved(requirement) {
   return requirement.decision === "APPROVED" || requirement.approved === true;
 }
 
-function requirementStatus(requirement, tasks) {
+function requirementStatus(requirement, tasks, artifacts) {
   if (requirement.decision === "REJECTED" || requirement.approved === false) return "NOT_APPLICABLE";
   if (!isApproved(requirement)) return "UNKNOWN";
-  if (!tasks.length) return "MISSING";
+  if (!tasks.length) return artifacts.length ? "IMPLEMENTED_UNVERIFIED" : "MISSING";
   if (tasks.some((task) => task.status === "FAILED")) return "FAILED";
   const completed = tasks.filter((task) => task.status === "COMPLETED");
-  if (!completed.length && tasks.some((task) => task.status === "BLOCKED")) return "BLOCKED";
+  if (!completed.length && tasks.some((task) => task.status === "BLOCKED")) {
+    return artifacts.length ? "PARTIALLY_IMPLEMENTED" : "BLOCKED";
+  }
   if (completed.length !== tasks.length) return completed.length ? "PARTIALLY_IMPLEMENTED" : "UNKNOWN";
   return "IMPLEMENTED_UNVERIFIED";
 }
@@ -49,7 +51,7 @@ function createProjectImplementationManifest({ project, tasks, executions, artif
       requirementId: requirement.id,
       description: requirement.text || requirement.originalText || "",
       decision: requirement.decision || (requirement.approved ? "APPROVED" : "NEEDS_APPROVAL"),
-      status: requirementStatus(requirement, relatedTasks),
+      status: requirementStatus(requirement, relatedTasks, relatedArtifacts),
       responsibleAgents: [...new Set(relatedTasks.map((task) => task.agentId))],
       files: relatedArtifacts.map((file) => ({
         path: file.path,
