@@ -31,7 +31,7 @@
 | `node --test test/providers.test.js` | 8 passed, 0 failed. |
 | `npm run check` | Passed. |
 | `npm test` | 36 passed, 0 failed. |
-| `npm run build` | Earlier pre-commit run is excluded because its archive used the baseline `GITHUB_SHA`; rerun after the Increment 1 commit before treating packaging as evidence. |
+| `GITHUB_SHA=9657e20f38c6aba07f4ae226351bf509ade267eb npm run build` | Passed; created `dist/master-gods-13.2.0-9657e20f38c6.tar.gz` from the committed Increment 1 source. SHA-256: `3ffaf5dace71bd0cfadd015ad10ddce861c098fa141e2f44fc86eda6dffd0061`. This tarball is not the required ZIP delivery manifest. |
 
 Focused provider test names:
 
@@ -56,7 +56,7 @@ API:            GET providers; PUT/DELETE credential; POST health; GET models; G
 TESTS:          npm test: 36 passed, 0 failed; provider suite: 8 passed, 0 failed
 EVIDENCE:       docs/V13_3_EVIDENCE.md#increment-1
 BLOCKED:        Live provider validation and production deployment; no external credentials/host
-DEFERRED:       Complete router scoring, DNS pinning, stream/tool execution, browser visual E2E, delivery ZIP/hash
+MISSING/DEFERRED: Complete router scoring is missing; DNS pinning, stream/tool execution, browser visual E2E, delivery ZIP/hash remain unimplemented/deferred
 GATES_TOUCHED:  07 BLOCKED; 08 focused PASS with DNS-pinning limitation; 09 mock PASS; 10 PASS (36 tests)
 productionReady: false
 NEXT:           Remain on Increment 1 until applicable gates pass; resolve live-provider and delivery evidence blockers before Increment 2
