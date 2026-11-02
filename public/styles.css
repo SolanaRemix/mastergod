@@ -9,6 +9,15 @@
   --line: rgba(148, 163, 184, .15);
   --cyan: #67e8f9;
   --purple: #a78bfa;
+  --neon-purple: #A855F7;
+  --neon-orange: #F97316;
+  --neon-red: #EF4444;
+  --neon-green: #22C55E;
+  --neon-yellow: #EAB308;
+  --neon-cyan: #06B6D4;
+  --neon-blue: #3B82F6;
+  --glass-surface: rgba(16, 23, 39, .78);
+  --glass-border: rgba(148, 163, 184, .18);
 }
 
 * { box-sizing: border-box; }
@@ -23,6 +32,30 @@ body {
 
 button, textarea { font: inherit; }
 button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+.flash-glow-card {
+  --glow-color: var(--neon-cyan);
+  border: 1px solid color-mix(in srgb, var(--glow-color) 25%, var(--glass-border));
+  background: linear-gradient(145deg, rgba(20, 28, 46, .88), var(--glass-surface));
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .2), inset 0 1px rgba(255, 255, 255, .035);
+  backdrop-filter: blur(14px);
+  transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+.flash-glow-card[data-glow="purple"] { --glow-color: var(--neon-purple); }
+.flash-glow-card[data-glow="orange"] { --glow-color: var(--neon-orange); }
+.flash-glow-card[data-glow="red"] { --glow-color: var(--neon-red); }
+.flash-glow-card[data-glow="green"] { --glow-color: var(--neon-green); }
+.flash-glow-card[data-glow="yellow"] { --glow-color: var(--neon-yellow); }
+.flash-glow-card[data-glow="cyan"] { --glow-color: var(--neon-cyan); }
+.flash-glow-card[data-glow="blue"] { --glow-color: var(--neon-blue); }
+.flash-glow-card[data-glow="rainbow-subtle"] {
+  --glow-color: var(--neon-purple);
+  border-image: linear-gradient(120deg, var(--neon-purple), var(--neon-cyan), var(--neon-orange)) 1;
+}
+.flash-glow-card:hover, .flash-glow-card:focus-within {
+  border-color: color-mix(in srgb, var(--glow-color) 55%, white 5%);
+  box-shadow: 0 18px 52px color-mix(in srgb, var(--glow-color) 12%, transparent), inset 0 1px rgba(255, 255, 255, .05);
+}
+.flash-glow-card.is-active { box-shadow: 0 0 0 1px color-mix(in srgb, var(--glow-color) 38%, transparent), 0 16px 50px color-mix(in srgb, var(--glow-color) 14%, transparent); }
 .page-glow { position: fixed; inset: 20% 5% auto; height: 45vh; z-index: -1; pointer-events: none; background: radial-gradient(ellipse, rgba(45, 93, 193, .12), transparent 68%); filter: blur(35px); }
 .topbar { height: 76px; padding: 0 clamp(20px, 5vw, 72px); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: rgba(9, 13, 24, .75); }
 .brand { display: inline-flex; gap: 12px; align-items: center; color: #e5eaff; text-decoration: none; font-size: 13px; letter-spacing: .14em; }
@@ -83,6 +116,20 @@ textarea::placeholder { color: #74829b; }
 .project-notice { margin: 14px 0; color: #ffd58a; font-size: 12px; line-height: 1.6; }
 .text-link { color: #8be5f3; font-size: 12px; text-underline-offset: 3px; }
 .empty-state { padding: 28px; color: var(--muted); border: 1px dashed rgba(148, 163, 184, .2); border-radius: 13px; text-align: center; font-size: 13px; }
+.artifact-workspace { margin-top: 20px; padding: 16px; border-radius: 14px; }
+.artifact-workspace h4, .artifact-workspace h5 { margin: 0 0 9px; }
+.artifact-workspace > .helper-text { margin: 0 0 13px; line-height: 1.6; }
+.artifact-generate-button { margin: 4px 8px 0 0; }
+.artifact-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.artifact-columns { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr); gap: 12px; }
+.artifact-tree, .artifact-editor { min-width: 0; padding: 12px; border: 1px solid var(--glass-border); border-radius: 12px; background: rgba(5, 9, 18, .38); }
+.artifact-tree-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px 0; color: #c1cce0; font-size: 11px; }
+.artifact-file-button { max-width: 100%; padding: 8px; overflow-wrap: anywhere; color: #b7eaf3; border: 1px solid transparent; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
+.artifact-file-button:hover, .artifact-file-button[aria-current="true"] { border-color: rgba(6, 182, 212, .35); background: rgba(6, 182, 212, .09); }
+.artifact-editor-input { min-height: 280px; max-height: 65vh; resize: vertical; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
+.artifact-workspace .secondary-button, .artifact-workspace .primary-button { min-height: 38px; width: auto; }
+.artifact-workspace a { text-decoration: none; }
+.artifact-editor > label { display: block; margin: 12px 0 6px; color: #d7e3f7; font-size: 12px; }
 .game-studio { margin-top: 20px; }
 .game-details { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 22px; margin-top: 25px; }
 .game-details h3 { margin: 0; font-size: 20px; }
@@ -120,6 +167,8 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 22px
   .game-refine-row { flex-direction: column; }
   .game-preview-controls select { flex-basis: 100%; }
   .topbar-actions { gap: 8px; }
+  .artifact-columns { grid-template-columns: 1fr; }
+  .artifact-workspace .primary-button { width: 100%; }
   footer { text-align: center; }
 }
 

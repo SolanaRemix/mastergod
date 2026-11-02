@@ -4,6 +4,7 @@ const path = require("node:path");
 const { approveRequirements, createDraft, serializeBlueprint } = require("./src/blueprint");
 const { agents } = require("./src/agents");
 const { AuthService } = require("./src/auth");
+const { generateProjectArtifacts } = require("./src/artifacts");
 const { createGameProject, generatePlayableHtml, refineGameSpecification } = require("./src/game-studio");
 const { AuthStore, GameStore, ProjectStore } = require("./src/store");
 
@@ -107,7 +108,7 @@ function createRateLimiter({ limit, windowMs }) {
   };
 }
 
-async function readJson(request) {
+async function readJson(request, maxBytes = MAX_BODY_BYTES) {
   if (!request.headers["content-type"]?.toLowerCase().startsWith("application/json")) {
     const error = new Error("Content-Type must be application/json.");
     error.status = 415;
@@ -118,7 +119,7 @@ async function readJson(request) {
   let bytes = 0;
   for await (const chunk of request) {
     bytes += chunk.length;
-    if (bytes > MAX_BODY_BYTES) {
+    if (bytes > maxBytes) {
       const error = new Error("Request body is too large.");
       error.status = 413;
       throw error;
@@ -167,6 +168,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
   const allowLogin = createRateLimiter({ limit: 20, windowMs: 15 * 60 * 1000 });
   const allowGameCreation = createRateLimiter({ limit: 8, windowMs: 60 * 60 * 1000 });
   const allowGameChanges = createRateLimiter({ limit: 60, windowMs: 60 * 60 * 1000 });
+  const allowArtifactChanges = createRateLimiter({ limit: 120, windowMs: 60 * 60 * 1000 });
 
   const server = http.createServer(async (request, response) => {
     try {
@@ -459,6 +461,167 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         return sendJson(response, 201, { project });
       }
 
+      const artifactRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/artifacts(?:\/(generate|file|files|directories|history|audit|export|restore|rename|duplicate))?$/);
+      if (artifactRoute) {
+        const projectId = artifactRoute[1];
+        const action = artifactRoute[2];
+        const ownerId = request.authenticatedUser.id;
+        if (request.method !== "GET" && !allowArtifactChanges(ownerId)) {
+          return sendJson(response, 429, { error: "File activity limit reached. Try again later." }, { "retry-after": "3600" });
+        }
+        if (request.method === "POST" && action === "generate") {
+          const project = await store.get(projectId);
+          if (!project || project.ownerId !== ownerId) return sendJson(response, 404, { error: "Project not found." });
+          const artifacts = await store.generateArtifacts(projectId, ownerId, generateProjectArtifacts(project));
+          if (!artifacts) return sendJson(response, 404, { error: "Project not found." });
+          return sendJson(response, 201, {
+            status: "IMPLEMENTED_UNVERIFIED",
+            execution: "local deterministic request-specific scaffold; no AI agent or provider ran",
+            files: artifacts
+          });
+        }
+        if (request.method === "GET" && !action) {
+          const tree = await store.listArtifacts(projectId, ownerId);
+          return tree ? sendJson(response, 200, { ...tree, status: "VERIFIED" })
+            : sendJson(response, 404, { error: "Project not found." });
+        }
+        if (request.method === "GET" && action === "file") {
+          if (!url.searchParams.has("path")) return sendJson(response, 400, { error: "Choose a file path." });
+          const artifact = await store.readArtifact(projectId, ownerId, url.searchParams.get("path"));
+          if (!artifact) return sendJson(response, 404, { error: "File not found." });
+          if (url.searchParams.get("download") === "1") {
+            response.writeHead(200, {
+              "content-type": "application/octet-stream",
+              "content-disposition": `attachment; filename="${path.basename(artifact.path)}"`,
+              "cache-control": "no-store",
+              "x-content-type-options": "nosniff"
+            });
+            return response.end(artifact.contents);
+          }
+          return sendJson(response, 200, { artifact });
+        }
+        if (request.method === "POST" && action === "files") {
+          const body = await readJson(request, 300 * 1024);
+          if (!body || typeof body.path !== "string" || typeof body.contents !== "string"
+            || body.contents.length > 256 * 1024) {
+            return sendJson(response, 400, { error: "Provide a project-relative path and text contents (up to 256 KiB)." });
+          }
+          const language = typeof body.language === "string" ? body.language : "text";
+          const artifact = await store.createArtifact(projectId, ownerId, body.path, body.contents, language);
+          return artifact ? sendJson(response, 201, { artifact, status: "VERIFIED" })
+            : sendJson(response, 404, { error: "Project not found." });
+        }
+        if (request.method === "PUT" && action === "file") {
+          const body = await readJson(request, 300 * 1024);
+          if (!url.searchParams.has("path") || !body || typeof body.contents !== "string"
+            || !Number.isInteger(body.expectedVersion) || body.expectedVersion < 1
+            || body.contents.length > 256 * 1024) {
+            return sendJson(response, 400, { error: "Provide a file path, contents, and the version you opened." });
+          }
+          const artifact = await store.writeArtifact(projectId, ownerId, url.searchParams.get("path"),
+            body.contents, body.expectedVersion, "Saved by the project owner.");
+          return artifact ? sendJson(response, 200, { artifact, status: "VERIFIED" })
+            : sendJson(response, 404, { error: "File not found." });
+        }
+        if (request.method === "DELETE" && action === "file") {
+          const version = Number(url.searchParams.get("version"));
+          if (!url.searchParams.has("path") || !Number.isInteger(version) || version < 1) {
+            return sendJson(response, 400, { error: "Provide the file path and current version." });
+          }
+          const deleted = await store.deleteArtifact(projectId, ownerId, url.searchParams.get("path"), version);
+          return deleted ? sendJson(response, 200, { status: "VERIFIED", deleted: true })
+            : sendJson(response, 404, { error: "File not found." });
+        }
+        if (request.method === "GET" && action === "history") {
+          if (!url.searchParams.has("path")) return sendJson(response, 400, { error: "Choose a file path." });
+          const history = await store.artifactHistory(projectId, ownerId, url.searchParams.get("path"));
+          return history ? sendJson(response, 200, { history }) : sendJson(response, 404, { error: "Project or file not found." });
+        }
+        if (request.method === "POST" && action === "restore") {
+          const body = await readJson(request);
+          if (!body || typeof body.path !== "string" || !Number.isInteger(body.version)
+            || body.version < 1 || !Number.isInteger(body.expectedVersion) || body.expectedVersion < 1) {
+            return sendJson(response, 400, { error: "Choose a file, saved version, and current version." });
+          }
+          const artifact = await store.restoreArtifact(projectId, ownerId, body.path, body.version, body.expectedVersion);
+          return artifact ? sendJson(response, 200, { artifact, status: "VERIFIED" })
+            : sendJson(response, 404, { error: "File or saved version not found." });
+        }
+        if (request.method === "POST" && action === "rename") {
+          const body = await readJson(request);
+          if (!body || typeof body.fromPath !== "string" || typeof body.toPath !== "string"
+            || !["file", "directory"].includes(body.kind)) {
+            return sendJson(response, 400, { error: "Provide a source path, destination path, and file or folder type." });
+          }
+          if (body.kind === "directory") {
+            const renamed = await store.renameArtifactDirectory(projectId, ownerId, body.fromPath, body.toPath);
+            return renamed ? sendJson(response, 200, { status: "VERIFIED" })
+              : sendJson(response, 404, { error: "Folder not found." });
+          }
+          if (!Number.isInteger(body.expectedVersion) || body.expectedVersion < 1) {
+            return sendJson(response, 400, { error: "Provide the file version you opened." });
+          }
+          const artifact = await store.renameArtifact(projectId, ownerId, body.fromPath, body.toPath, body.expectedVersion);
+          return artifact ? sendJson(response, 200, { artifact, status: "VERIFIED" })
+            : sendJson(response, 404, { error: "File not found." });
+        }
+        if (request.method === "POST" && action === "duplicate") {
+          const body = await readJson(request);
+          if (!body || typeof body.fromPath !== "string" || typeof body.toPath !== "string") {
+            return sendJson(response, 400, { error: "Provide the source file and a new destination path." });
+          }
+          const artifact = await store.duplicateArtifact(projectId, ownerId, body.fromPath, body.toPath);
+          return artifact ? sendJson(response, 201, { artifact, status: "VERIFIED" })
+            : sendJson(response, 404, { error: "File not found." });
+        }
+        if (request.method === "POST" && action === "directories") {
+          const body = await readJson(request);
+          if (!body || typeof body.path !== "string") return sendJson(response, 400, { error: "Provide a folder path." });
+          const directory = await store.createArtifactDirectory(projectId, ownerId, body.path);
+          return directory ? sendJson(response, 201, { directory, status: "VERIFIED" })
+            : sendJson(response, 404, { error: "Project not found." });
+        }
+        if (request.method === "PATCH" && action === "directories") {
+          const body = await readJson(request);
+          if (!body || typeof body.fromPath !== "string" || typeof body.toPath !== "string") {
+            return sendJson(response, 400, { error: "Provide the current and new folder path." });
+          }
+          const renamed = await store.renameArtifactDirectory(projectId, ownerId, body.fromPath, body.toPath);
+          return renamed ? sendJson(response, 200, { status: "VERIFIED" })
+            : sendJson(response, 404, { error: "Folder not found." });
+        }
+        if (request.method === "DELETE" && action === "directories") {
+          if (!url.searchParams.has("path")) return sendJson(response, 400, { error: "Choose a folder path." });
+          const deleted = await store.deleteArtifactDirectory(projectId, ownerId, url.searchParams.get("path"));
+          return deleted ? sendJson(response, 200, { status: "VERIFIED", deleted: true })
+            : sendJson(response, 404, { error: "Folder not found." });
+        }
+        if (request.method === "GET" && action === "audit") {
+          const audit = await store.artifactAudit(projectId, ownerId);
+          return audit ? sendJson(response, 200, { audit }) : sendJson(response, 404, { error: "Project not found." });
+        }
+        if (request.method === "GET" && action === "export") {
+          const tree = await store.listArtifacts(projectId, ownerId);
+          if (!tree) return sendJson(response, 404, { error: "Project not found." });
+          const files = [];
+          let totalBytes = 0;
+          for (const entry of tree.files) {
+            const artifact = await store.readArtifact(projectId, ownerId, entry.path);
+            totalBytes += artifact.sizeBytes;
+            if (totalBytes > 4 * 1024 * 1024) return sendJson(response, 413, { error: "Project export exceeds the 4 MiB download limit." });
+            files.push({ path: artifact.path, contents: artifact.contents, checksum: artifact.checksum });
+          }
+          response.writeHead(200, {
+            "content-type": "application/json; charset=utf-8",
+            "content-disposition": `attachment; filename="gods-project-${projectId}.json"`,
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff"
+          });
+          return response.end(JSON.stringify({ projectId, files, directories: tree.directories }));
+        }
+        return sendJson(response, 405, { error: "File operation is not supported." });
+      }
+
       const projectRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})(?:\/(approve|blueprint))?$/);
       if (request.method === "GET" && projectRoute && projectRoute[2] !== "approve") {
         const project = await store.get(projectRoute[1]);
@@ -494,7 +657,14 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
 
       return sendJson(response, 404, { error: "Route not found." });
     } catch (error) {
-      if (error.status) return sendJson(response, error.status, { error: error.message });
+      const status = error.status || ({
+        PROTECTED_ARTIFACT: 403,
+        VERSION_CONFLICT: 409,
+        PATH_CONFLICT: 409,
+        ARTIFACTS_EXIST: 409,
+        PROJECT_NOT_APPROVED: 409
+      }[error.code]);
+      if (status) return sendJson(response, status, { error: error.message });
       console.error(JSON.stringify({
         event: "request.failed",
         method: request.method,

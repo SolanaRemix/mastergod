@@ -112,7 +112,7 @@ function makeTag(text, className = "status-pill") {
 
 function renderProject(project) {
   const card = document.createElement("article");
-  card.className = "project-card";
+  card.className = "project-card flash-glow-card";
 
   const header = document.createElement("div");
   header.className = "project-card-header";
@@ -160,7 +160,289 @@ function renderProject(project) {
   blueprintLink.href = `/api/projects/${encodeURIComponent(project.id)}/blueprint`;
   blueprintLink.textContent = "Download project blueprint";
   card.append(blueprintLink);
+
+  if (project.status !== "DRAFT") {
+    const artifactSection = document.createElement("section");
+    artifactSection.className = "artifact-workspace flash-glow-card";
+    artifactSection.dataset.glow = "cyan";
+    const artifactHeading = document.createElement("h4");
+    artifactHeading.textContent = "Project files";
+    const artifactDescription = document.createElement("p");
+    artifactDescription.className = "helper-text";
+    artifactDescription.textContent = "Request-specific starter files are stored in your project database. Provider-backed generation is not configured.";
+    const artifactToggle = document.createElement("button");
+    artifactToggle.className = "secondary-button";
+    artifactToggle.classList.add("hidden");
+    artifactToggle.type = "button";
+    artifactToggle.textContent = "Open file manager";
+    const fileManager = document.createElement("div");
+    fileManager.className = "hidden";
+    artifactToggle.addEventListener("click", async () => {
+      fileManager.classList.toggle("hidden");
+      if (!fileManager.classList.contains("hidden")) {
+        artifactToggle.textContent = "Refresh file manager";
+        await renderArtifactManager(project, fileManager);
+      }
+    });
+    const generateButton = document.createElement("button");
+    generateButton.className = "primary-button artifact-generate-button";
+    generateButton.type = "button";
+    generateButton.textContent = "Generate request-specific starter files";
+    generateButton.addEventListener("click", async () => {
+      generateButton.disabled = true;
+      try {
+        const result = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/generate`, { method: "POST" });
+        artifactDescription.textContent = `${result.files.length} files generated and read back from local storage. Status: IMPLEMENTED_UNVERIFIED. ${result.execution}.`;
+        generateButton.classList.add("hidden");
+        artifactToggle.classList.remove("hidden");
+        fileManager.classList.remove("hidden");
+        await renderArtifactManager(project, fileManager);
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        generateButton.disabled = false;
+      }
+    });
+    artifactSection.append(artifactHeading, artifactDescription, generateButton, artifactToggle, fileManager);
+    card.append(artifactSection);
+    api(`/api/projects/${encodeURIComponent(project.id)}/artifacts`)
+      .then(({ files }) => {
+        if (files.length) {
+          generateButton.classList.add("hidden");
+          artifactToggle.classList.remove("hidden");
+          artifactDescription.textContent = `${files.length} persistent files are available. Generated prototype code is not production-ready.`;
+        }
+      })
+      .catch(() => {});
+  }
   projectsList.append(card);
+}
+
+function addButton(label, className = "secondary-button") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.textContent = label;
+  return button;
+}
+
+async function renderArtifactManager(project, container, selectedPath) {
+  try {
+    const tree = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts`);
+    container.replaceChildren();
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "artifact-toolbar";
+    const createFile = addButton("New file");
+    createFile.addEventListener("click", async () => {
+      const filePath = window.prompt("Choose a project-relative file path, such as docs/notes.md");
+      if (!filePath) return;
+      const contents = window.prompt("Enter the initial file contents", "");
+      if (contents === null) return;
+      try {
+        const { artifact } = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/files`, {
+          method: "POST",
+          body: JSON.stringify({ path: filePath, contents, language: filePath.split(".").pop() || "text" })
+        });
+        await renderArtifactManager(project, container, artifact.path);
+      } catch (error) {
+        showError(error.message);
+      }
+    });
+    const createFolder = addButton("New folder");
+    createFolder.addEventListener("click", async () => {
+      const folderPath = window.prompt("Choose a project-relative folder path");
+      if (!folderPath) return;
+      try {
+        await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/directories`, {
+          method: "POST",
+          body: JSON.stringify({ path: folderPath })
+        });
+        await renderArtifactManager(project, container);
+      } catch (error) {
+        showError(error.message);
+      }
+    });
+    const exportLink = document.createElement("a");
+    exportLink.className = "secondary-button";
+    exportLink.href = `/api/projects/${encodeURIComponent(project.id)}/artifacts/export`;
+    exportLink.textContent = "Export project JSON";
+    toolbar.append(createFile, createFolder, exportLink);
+
+    const columns = document.createElement("div");
+    columns.className = "artifact-columns";
+    const treePanel = document.createElement("div");
+    treePanel.className = "artifact-tree";
+    const treeHeading = document.createElement("h5");
+    treeHeading.textContent = "Files";
+    treePanel.append(treeHeading);
+    tree.directories.forEach((directory) => {
+      const row = document.createElement("div");
+      row.className = "artifact-tree-row";
+      const label = document.createElement("span");
+      label.textContent = `▸ ${directory}/`;
+      const rename = addButton("Rename");
+      rename.addEventListener("click", async () => {
+        const toPath = window.prompt("New folder path", directory);
+        if (!toPath || toPath === directory) return;
+        try {
+          await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/directories`, {
+            method: "PATCH",
+            body: JSON.stringify({ fromPath: directory, toPath })
+          });
+          await renderArtifactManager(project, container);
+        } catch (error) {
+          showError(error.message);
+        }
+      });
+      const remove = addButton("Delete");
+      remove.addEventListener("click", async () => {
+        if (!window.confirm(`Delete folder ${directory} and all files in it? This cannot be undone.`)) return;
+        try {
+          await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/directories?path=${encodeURIComponent(directory)}`, {
+            method: "DELETE"
+          });
+          await renderArtifactManager(project, container);
+        } catch (error) {
+          showError(error.message);
+        }
+      });
+      row.append(label, rename, remove);
+      treePanel.append(row);
+    });
+    tree.files.forEach((file) => {
+      const row = document.createElement("div");
+      row.className = "artifact-tree-row";
+      const open = addButton(`${file.path} · v${file.version}`);
+      open.className = "artifact-file-button";
+      open.setAttribute("aria-current", selectedPath === file.path ? "true" : "false");
+      open.addEventListener("click", () => renderArtifactManager(project, container, file.path));
+      row.append(open);
+      treePanel.append(row);
+    });
+    columns.append(treePanel);
+
+    if (selectedPath) {
+      const { artifact } = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/file?path=${encodeURIComponent(selectedPath)}`);
+      const editorPanel = document.createElement("div");
+      editorPanel.className = "artifact-editor";
+      const fileTitle = document.createElement("h5");
+      fileTitle.textContent = artifact.path;
+      const state = document.createElement("p");
+      state.className = "helper-text";
+      state.textContent = `Version ${artifact.version} · ${artifact.sizeBytes} bytes · ${artifact.checksum.slice(0, 12)}… · ${artifact.status.replaceAll("_", " ")}`;
+      const editor = document.createElement("textarea");
+      editor.className = "artifact-editor-input";
+      editor.setAttribute("aria-label", `Edit ${artifact.path}`);
+      editor.spellcheck = false;
+      editor.value = artifact.contents;
+      const controls = document.createElement("div");
+      controls.className = "artifact-toolbar";
+      const save = addButton("Save changes", "primary-button");
+      save.addEventListener("click", async () => {
+        try {
+          const result = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/file?path=${encodeURIComponent(artifact.path)}`, {
+            method: "PUT",
+            body: JSON.stringify({ contents: editor.value, expectedVersion: artifact.version })
+          });
+          await renderArtifactManager(project, container, result.artifact.path);
+          liveRegion.textContent = `${artifact.path} saved and read back from storage.`;
+        } catch (error) {
+          showError(error.message);
+        }
+      });
+      const download = document.createElement("a");
+      download.className = "secondary-button";
+      download.href = `/api/projects/${encodeURIComponent(project.id)}/artifacts/file?path=${encodeURIComponent(artifact.path)}&download=1`;
+      download.textContent = "Download";
+      const copy = addButton("Copy");
+      copy.addEventListener("click", async () => {
+        const toPath = window.prompt("New path for the copy", `${artifact.path}.copy`);
+        if (!toPath) return;
+        try {
+          const result = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/duplicate`, {
+            method: "POST",
+            body: JSON.stringify({ fromPath: artifact.path, toPath })
+          });
+          await renderArtifactManager(project, container, result.artifact.path);
+        } catch (error) {
+          showError(error.message);
+        }
+      });
+      const rename = addButton("Rename");
+      rename.addEventListener("click", async () => {
+        const toPath = window.prompt("New file path", artifact.path);
+        if (!toPath || toPath === artifact.path) return;
+        try {
+          const result = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/rename`, {
+            method: "POST",
+            body: JSON.stringify({
+              kind: "file",
+              fromPath: artifact.path,
+              toPath,
+              expectedVersion: artifact.version
+            })
+          });
+          await renderArtifactManager(project, container, result.artifact.path);
+        } catch (error) {
+          showError(error.message);
+        }
+      });
+      const remove = addButton("Delete file");
+      remove.addEventListener("click", async () => {
+        if (!window.confirm(`Delete ${artifact.path}? This cannot be undone.`)) return;
+        try {
+          await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/file?path=${encodeURIComponent(artifact.path)}&version=${artifact.version}`, {
+            method: "DELETE"
+          });
+          await renderArtifactManager(project, container);
+        } catch (error) {
+          showError(error.message);
+        }
+      });
+      controls.append(save, download, copy, rename, remove);
+
+      const history = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/history?path=${encodeURIComponent(artifact.path)}`);
+      const versionLabel = document.createElement("label");
+      versionLabel.textContent = "Version history";
+      versionLabel.htmlFor = `artifact-version-${project.id}`;
+      const versions = document.createElement("select");
+      versions.id = `artifact-version-${project.id}`;
+      history.history.forEach((version) => {
+        const option = document.createElement("option");
+        option.value = String(version.version);
+        option.textContent = `Version ${version.version} · ${new Date(version.createdAt).toLocaleString()}`;
+        versions.append(option);
+      });
+      versions.value = String(artifact.version);
+      const restore = addButton("Restore selected version");
+      restore.addEventListener("click", async () => {
+        const version = Number(versions.value);
+        if (version === artifact.version || !window.confirm(`Restore version ${version} as a new version?`)) return;
+        try {
+          const result = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/restore`, {
+            method: "POST",
+            body: JSON.stringify({ path: artifact.path, version, expectedVersion: artifact.version })
+          });
+          await renderArtifactManager(project, container, result.artifact.path);
+        } catch (error) {
+          showError(error.message);
+        }
+      });
+      editorPanel.append(fileTitle, state, editor, controls, versionLabel, versions, restore);
+      columns.append(editorPanel);
+    } else {
+      const empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.textContent = tree.files.length ? "Choose a file to open and edit it." : "No files yet. Create a file or generate a request-specific starter.";
+      columns.append(empty);
+    }
+
+    container.append(toolbar, columns);
+  } catch (error) {
+    showError(error.message);
+    container.replaceChildren();
+  }
 }
 
 async function loadProjects() {

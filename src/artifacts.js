@@ -2,6 +2,7 @@ const { createHash, randomUUID } = require("node:crypto");
 const path = require("node:path");
 
 const SAFE_ARTIFACT_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]{1,180}$/;
+const PROTECTED_ARTIFACT_PATHS = new Set(["package.json", "src/server.js", "src/specification.js"]);
 const FEATURE_CATALOG = [
   { slug: "drivers", name: "Driver management", pattern: /\bdrivers?\b/i },
   { slug: "vehicles", name: "Vehicle management", pattern: /\bvehicles?\b|\bfleet\b|\btrucks?\b/i },
@@ -37,9 +38,20 @@ function validateArtifactPath(value) {
     || value.split("/").some((segment) => segment === "" || segment === "." || segment === "..")
     || path.posix.normalize(value) !== value
   ) {
-    throw new Error("Choose a safe project-relative file path.");
+    const error = new Error("Choose a safe project-relative file path.");
+    error.status = 400;
+    throw error;
+  }
+  if (value.split("/").some((segment) => [".git", "node_modules", ".env"].includes(segment))) {
+    const error = new Error("System, dependency, and secret files are not managed as project artifacts.");
+    error.status = 400;
+    throw error;
   }
   return value;
+}
+
+function isProtectedArtifactPath(value) {
+  return PROTECTED_ARTIFACT_PATHS.has(value);
 }
 
 function featureListForProject(project) {
@@ -292,6 +304,7 @@ These files are a request-specific deterministic scaffold generated from the sav
 module.exports = {
   featureListForProject,
   generateProjectArtifacts,
+  isProtectedArtifactPath,
   sha256,
   validateArtifactPath
 };
