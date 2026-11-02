@@ -11,7 +11,7 @@ V13 continues the existing local-first V12 application. It does not replace the 
 - Artifact Markdown preview renders headings, paragraphs, ordered and nested lists, task checklists, tables, blockquotes, inline emphasis/code, links, images, and fenced code.
 - Raw HTML is escaped. Links and image sources are protocol-checked; external links open with `noopener noreferrer`, and images send no referrer.
 - The renderer has focused automated tests.
-- The release blueprint now tracks all 17 V12 gates and 17 V13 gates with explicit statuses.
+- The release blueprint now tracks all 17 V12 gates and 18 V13 gates with explicit statuses.
 - Each project has an owner-scoped implementation manifest that reads requirements, task states, agent execution metadata, artifact versions/checksums, and stored static-build summaries back from SQLite. Project test results remain `UNKNOWN` because test runs are not currently persisted per project.
 
 ## Existing capabilities retained
