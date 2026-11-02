@@ -30,6 +30,7 @@ class PersistenceStore {
   async open() {
     await fs.mkdir(this.root, { recursive: true, mode: 0o700 });
     mkdirSync(this.root, { recursive: true, mode: 0o700 });
+    chmodSync(this.root, 0o700);
     this.database = new DatabaseSync(this.databasePath, { enableForeignKeyConstraints: true });
     chmodSync(this.databasePath, 0o600);
     this.database.exec(`
@@ -86,6 +87,8 @@ class PersistenceStore {
     }
 
     this.transaction(() => {
+      if (this.database.prepare("SELECT 1 FROM migrations WHERE version = 1").get()) return;
+
       const insertUser = this.database.prepare(`
         INSERT OR IGNORE INTO users (id, email, role, salt, password_hash, created_at)
         VALUES (?, ?, ?, ?, ?, ?)

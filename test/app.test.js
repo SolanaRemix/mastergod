@@ -309,6 +309,7 @@ test("SQLite migration imports legacy owned records once and leaves unowned proj
   assert.equal((await migratedProjects.list(user.id)).length, 1);
   assert.equal((await migratedProjects.get(unownedProject.id)), null);
   assert.equal((await fs.stat(path.join(legacyDirectory, "gods.sqlite"))).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(legacyDirectory)).mode & 0o777, 0o700);
 
   await fs.writeFile(path.join(legacyDirectory, "projects", unownedProject.id, "project.json"), JSON.stringify({
     ...unownedProject,
