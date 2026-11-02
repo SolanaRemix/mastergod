@@ -234,6 +234,14 @@ textarea::placeholder { color: #74829b; }
 .artifact-file-button { min-height: 44px; max-width: 100%; padding: 8px; overflow-wrap: anywhere; color: #b7eaf3; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; text-align: left; cursor: pointer; }
 .artifact-file-button:hover, .artifact-file-button[aria-current="true"] { border-color: rgba(6, 182, 212, .35); background: rgba(6, 182, 212, .09); }
 .artifact-editor-input { min-height: 280px; max-height: 65vh; resize: vertical; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
+.artifact-source-editor { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: stretch; overflow: hidden; border: 1px solid var(--glass-border); border-radius: var(--radius-md); background: rgba(5, 9, 18, .55); }
+.artifact-source-editor .artifact-editor-input { min-width: 0; border: 0; border-radius: 0; background: transparent; }
+.artifact-line-numbers { max-height: 65vh; min-height: 280px; margin: 0; overflow: hidden; padding: 14px 8px; color: var(--text-muted); background: rgba(255,255,255,.025); text-align: right; user-select: none; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.artifact-markdown-preview { max-height: 45vh; overflow: auto; margin-top: 10px; padding: 14px; color: var(--text-primary); line-height: 1.65; overflow-wrap: anywhere; }
+.artifact-markdown-preview h1, .artifact-markdown-preview h2, .artifact-markdown-preview h3 { margin: 1em 0 .45em; }
+.artifact-markdown-preview p { margin: .6em 0; }
+.artifact-toolbar label.secondary-button { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+.artifact-toolbar input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .artifact-workspace .secondary-button, .artifact-workspace .primary-button { min-height: 44px; width: auto; }
 .artifact-workspace a { text-decoration: none; }
 .artifact-editor > label { display: block; margin: 12px 0 6px; color: #d7e3f7; font-size: 12px; }

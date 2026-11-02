@@ -369,6 +369,16 @@ function renderAgentTasks(project, container, tasks) {
   });
 }
 
+function encodeBase64Utf8(value) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
 function addButton(label, className = "secondary-button") {
   const button = document.createElement("button");
   button.type = "button";
@@ -423,7 +433,41 @@ async function renderArtifactManager(project, container, selectedPath) {
     zipLink.className = "secondary-button";
     zipLink.href = `/api/projects/${encodeURIComponent(project.id)}/artifacts/zip`;
     zipLink.textContent = "Download verified project ZIP";
-    toolbar.append(createFile, createFolder, exportLink, zipLink);
+    const uploadInput = document.createElement("input");
+    uploadInput.type = "file";
+    uploadInput.multiple = true;
+    uploadInput.accept = ".js,.jsx,.ts,.tsx,.html,.css,.json,.yaml,.yml,.md,.sql,.py,.php,.sol,.rs,.toml,.xml,.txt,.svg";
+    uploadInput.setAttribute("aria-label", "Upload UTF-8 text files to the project");
+    uploadInput.addEventListener("change", async () => {
+      const selectedFiles = [...(uploadInput.files || [])];
+      if (!selectedFiles.length) return;
+      try {
+        for (const file of selectedFiles) {
+          if (file.size > 256 * 1024) throw new Error(`${file.name} exceeds the 256 KiB per-file limit.`);
+          const contents = await file.text();
+          const filePath = file.webkitRelativePath || file.name;
+          await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/upload`, {
+            method: "POST",
+            body: JSON.stringify({
+              path: filePath,
+              contentsBase64: encodeBase64Utf8(contents),
+              language: filePath.split(".").pop() || "text"
+            })
+          });
+        }
+        await renderArtifactManager(project, container);
+        liveRegion.textContent = `${selectedFiles.length} text file(s) uploaded and saved to the project.`;
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        uploadInput.value = "";
+      }
+    });
+    const uploadLabel = document.createElement("label");
+    uploadLabel.className = "secondary-button";
+    uploadLabel.textContent = "Upload UTF-8 text files";
+    uploadLabel.append(uploadInput);
+    toolbar.append(createFile, createFolder, exportLink, zipLink, uploadLabel);
 
     const columns = document.createElement("div");
     columns.className = "artifact-columns";
@@ -492,6 +536,45 @@ async function renderArtifactManager(project, container, selectedPath) {
       editor.setAttribute("aria-label", `Edit ${artifact.path}`);
       editor.spellcheck = false;
       editor.value = artifact.contents;
+      const editorShell = document.createElement("div");
+      editorShell.className = "artifact-source-editor";
+      const lineNumbers = document.createElement("pre");
+      lineNumbers.className = "artifact-line-numbers";
+      lineNumbers.setAttribute("aria-hidden", "true");
+      const updateLineNumbers = () => {
+        lineNumbers.textContent = Array.from({ length: editor.value.split("\n").length }, (_, index) => String(index + 1)).join("\n");
+        lineNumbers.scrollTop = editor.scrollTop;
+      };
+      editor.addEventListener("input", updateLineNumbers);
+      editor.addEventListener("scroll", () => { lineNumbers.scrollTop = editor.scrollTop; });
+      updateLineNumbers();
+      editorShell.append(lineNumbers, editor);
+      const markdownPreview = document.createElement("div");
+      markdownPreview.className = "artifact-markdown-preview glass-card";
+      markdownPreview.setAttribute("aria-label", "Markdown preview");
+      const renderMarkdownPreview = () => {
+        const escaped = editor.value.replace(/[&<>"']/g, (character) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+        })[character]);
+        markdownPreview.innerHTML = escaped
+          .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+          .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+          .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+          .replace(/^\s*[-*] (.+)$/gm, "<li>$1</li>")
+          .replace(/(?:<li>.*<\/li>\n?)+/g, (items) => `<ul>${items}</ul>`)
+          .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+          .split(/\n{2,}/)
+          .map((block) => /^(?:<h[1-3]>|<ul>)/.test(block) ? block : `<p>${block.replace(/\n/g, "<br>")}</p>`)
+          .join("");
+      };
+      const isMarkdown = artifact.path.toLowerCase().endsWith(".md")
+        || artifact.language === "markdown" || artifact.language === "md";
+      if (isMarkdown) {
+        renderMarkdownPreview();
+        editor.addEventListener("input", renderMarkdownPreview);
+      } else {
+        markdownPreview.classList.add("hidden");
+      }
       const controls = document.createElement("div");
       controls.className = "artifact-toolbar";
       const save = addButton("Save changes", "primary-button");
@@ -511,6 +594,17 @@ async function renderArtifactManager(project, container, selectedPath) {
       download.className = "secondary-button";
       download.href = `/api/projects/${encodeURIComponent(project.id)}/artifacts/file?path=${encodeURIComponent(artifact.path)}&download=1`;
       download.textContent = "Download";
+      const findReplace = addButton("Find and replace");
+      findReplace.addEventListener("click", () => {
+        const find = window.prompt("Text to find");
+        if (find === null || find === "") return;
+        const replacement = window.prompt("Replace with", "");
+        if (replacement === null) return;
+        editor.value = editor.value.split(find).join(replacement);
+        updateLineNumbers();
+        renderMarkdownPreview();
+        editor.dispatchEvent(new Event("input"));
+      });
       const copy = addButton("Copy");
       copy.addEventListener("click", async () => {
         const toPath = window.prompt("New path for the copy", `${artifact.path}.copy`);
@@ -556,7 +650,7 @@ async function renderArtifactManager(project, container, selectedPath) {
           showError(error.message);
         }
       });
-      controls.append(save, download, copy, rename, remove);
+      controls.append(save, download, findReplace, copy, rename, remove);
 
       const history = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/history?path=${encodeURIComponent(artifact.path)}`);
       const versionLabel = document.createElement("label");
@@ -586,7 +680,7 @@ async function renderArtifactManager(project, container, selectedPath) {
           showError(error.message);
         }
       });
-      editorPanel.append(fileTitle, state, editor, controls, versionLabel, versions, restore);
+      editorPanel.append(fileTitle, state, editorShell, markdownPreview, controls, versionLabel, versions, restore);
       columns.append(editorPanel);
     } else {
       const empty = document.createElement("p");

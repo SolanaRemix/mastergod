@@ -610,6 +610,25 @@ test("blueprint generation persists an agent graph and artifact files remain own
   });
   assert.equal(created.response.status, 201);
   assert.equal(created.body.artifact.version, 1);
+  const uploaded = await json(`/api/projects/${truckingProject.id}/artifacts/upload`, {
+    method: "POST",
+    body: JSON.stringify({
+      path: "src/hello.js",
+      contentsBase64: Buffer.from("console.log('hello 🌎');", "utf8").toString("base64"),
+      language: "js"
+    })
+  });
+  assert.equal(uploaded.response.status, 201);
+  assert.equal(uploaded.body.artifact.contents, "console.log('hello 🌎');");
+  const binaryUpload = await json(`/api/projects/${truckingProject.id}/artifacts/upload`, {
+    method: "POST",
+    body: JSON.stringify({
+      path: "assets/image.png",
+      contentsBase64: Buffer.from([0xff, 0x00, 0x89]).toString("base64"),
+      language: "png"
+    })
+  });
+  assert.equal(binaryUpload.response.status, 415);
   const readBack = await json(`/api/projects/${truckingProject.id}/artifacts/file?path=docs%2Fnotes.md`);
   assert.equal(readBack.body.artifact.contents, "Original text");
   const blocker = await json(`/api/projects/${truckingProject.id}/artifacts/files`, {
@@ -703,6 +722,24 @@ test("blueprint generation persists an agent graph and artifact files remain own
   });
   const exported = await exportResponse.json();
   assert.ok(exported.files.some((file) => file.path === "docs/notes.md" && file.contents === "Original text"));
+  const zipResponse = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts/zip`, {
+    headers: { cookie: owner.cookie }
+  });
+  assert.equal(zipResponse.status, 200);
+  assert.equal(zipResponse.headers.get("content-type"), "application/zip");
+  const zipBytes = Buffer.from(await zipResponse.arrayBuffer());
+  assert.equal(zipBytes.readUInt32LE(0), 0x04034b50);
+  const zipDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "gods-zip-test-"));
+  const zipPath = path.join(zipDirectory, "project.zip");
+  await fs.writeFile(zipPath, zipBytes);
+  const archiveCheck = spawnSync("unzip", ["-tqq", zipPath], { encoding: "utf8" });
+  assert.equal(archiveCheck.status, 0);
+  const archivePaths = spawnSync("unzip", ["-Z", "-1", zipPath], { encoding: "utf8" });
+  assert.equal(archivePaths.status, 0);
+  assert.match(archivePaths.stdout, /docs\/notes\.md/);
+  assert.match(archivePaths.stdout, /src\/hello\.js/);
+  assert.doesNotMatch(archivePaths.stdout, /\.env|gods\.sqlite|credentials/i);
+  await fs.rm(zipDirectory, { recursive: true, force: true });
   const audit = await json(`/api/projects/${truckingProject.id}/artifacts/audit`);
   assert.ok(audit.body.audit.some((entry) => entry.action === "restored"));
 

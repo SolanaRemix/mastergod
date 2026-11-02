@@ -522,7 +522,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           : sendJson(response, 404, { error: "Project not found." });
       }
 
-      const artifactRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/artifacts(?:\/(generate|file|files|directories|history|audit|export|zip|restore|rename|duplicate))?$/);
+      const artifactRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/artifacts(?:\/(generate|file|files|upload|directories|history|audit|export|zip|restore|rename|duplicate))?$/);
       if (artifactRoute) {
         const projectId = artifactRoute[1];
         const action = artifactRoute[2];
@@ -564,6 +564,31 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           }
           const language = typeof body.language === "string" ? body.language : "text";
           const artifact = await store.createArtifact(projectId, ownerId, body.path, body.contents, language);
+          return artifact ? sendJson(response, 201, { artifact, status: "VERIFIED" })
+            : sendJson(response, 404, { error: "Project not found." });
+        }
+        if (request.method === "POST" && action === "upload") {
+          const body = await readJson(request, 400 * 1024);
+          if (!body || typeof body.path !== "string" || typeof body.contentsBase64 !== "string"
+            || body.contentsBase64.length > 350 * 1024
+            || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.contentsBase64)) {
+            return sendJson(response, 400, { error: "Upload one UTF-8 text file with a safe project-relative path (maximum 256 KiB)." });
+          }
+          const bytes = Buffer.from(body.contentsBase64, "base64");
+          if (bytes.length > 256 * 1024 || bytes.toString("base64") !== body.contentsBase64) {
+            return sendJson(response, 400, { error: "Uploaded text file exceeds 256 KiB or is not valid base64." });
+          }
+          let contents;
+          try {
+            contents = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+          } catch {
+            return sendJson(response, 415, { error: "Only UTF-8 text files are supported; binary asset uploads are unavailable." });
+          }
+          if (contents.includes("\u0000")) {
+            return sendJson(response, 415, { error: "Binary file contents are not supported by this text artifact store." });
+          }
+          const language = typeof body.language === "string" ? body.language : "text";
+          const artifact = await store.createArtifact(projectId, ownerId, body.path, contents, language);
           return artifact ? sendJson(response, 201, { artifact, status: "VERIFIED" })
             : sendJson(response, 404, { error: "Project not found." });
         }
