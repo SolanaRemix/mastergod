@@ -25,6 +25,8 @@ const { createHash } = require("node:crypto");
 const { featureListForProject } = require("../artifacts");
 const { agents, getAgent } = require("../agents");
 const { AgentCapabilityRegistry } = require("../capability-registry");
+const { CORE_AGENT_DEFINITIONS, LEGACY_AGENT_MAP } = require("../core-agents");
+const coreAgentsById = new Map(CORE_AGENT_DEFINITIONS.map((agent) => [agent.id, agent]));
 
 function assertBlueprint(project: BlueprintProject, projectId: string, ownerId: string): Requirement[] {
   if (!project || project.id !== projectId || project.ownerId !== ownerId) {
@@ -138,6 +140,13 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
     capability: "frontend-development",
     dependencies: ["domain", "ui"]
   });
+  tasks.push({
+    key: "code-generation",
+    title: "Generate editable request-specific frontend prototype files",
+    agentId: "code-generation-agent",
+    capability: "code-generation",
+    dependencies: ["domain", "ui", "frontend"]
+  });
   if (hasAssets || projectType === "game") tasks.push({
     key: "assets",
     title: "Visual asset requirements and generation plan",
@@ -177,7 +186,7 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
       title: "Automated acceptance and integration tests",
       agentId: "testing",
       capability: "test-engineering",
-      dependencies: ["domain", "frontend", ...(includeIntegrations ? ["integrations"] : []), ...(tasks.some((task) => task.key === "workflow") ? ["workflow"] : [])]
+      dependencies: ["domain", "frontend", "code-generation", ...(includeIntegrations ? ["integrations"] : []), ...(tasks.some((task) => task.key === "workflow") ? ["workflow"] : [])]
     },
     { key: "security", title: "Security and authorization review", agentId: "security", capability: "security-review", dependencies: ["testing", ...(hasAuth ? ["authentication"] : [])] },
     { key: "accessibility", title: "Keyboard, screen-reader, and responsive verification", agentId: "accessibility", capability: "accessibility-review", dependencies: ["frontend"] },
@@ -198,7 +207,20 @@ class ProjectGenerator {
   orchestrator: Orchestrator;
   registry: any;
 
-  constructor(store: GeneratorStore, orchestrator: Orchestrator, registry = new AgentCapabilityRegistry(agents)) {
+  constructor(store: GeneratorStore, orchestrator: Orchestrator, registry = new AgentCapabilityRegistry([
+    ...agents.filter((agent: any) => !coreAgentsById.has(agent.id)),
+    ...CORE_AGENT_DEFINITIONS.map((agent: any) => ({
+      ...agent,
+      keywords: [],
+      supportedFrameworks: agent.supportedFrameworks,
+      modelRequirements: [],
+      performanceHistory: [],
+      evaluationScore: null,
+      reliabilityScore: null,
+      deploymentStatus: "deployed",
+      execution: "local"
+    }))
+  ])) {
     this.store = store;
     this.orchestrator = orchestrator;
     this.registry = registry;
@@ -241,7 +263,10 @@ class ProjectGenerator {
     const ids = new Map(definitions.map((task) => [task.key, `${generationId}-${task.key}`]));
     const tasks = definitions.map((definition) => {
       const assignment = capabilityPlan.assignments.find((candidate: any) => candidate.capability === definition.capability);
-      const agent = (assignment && this.registry.get(assignment.agentId)) || getAgent(definition.agentId);
+      const selectedAgentId = assignment?.agentId || definition.agentId;
+      const operationalAgentId = LEGACY_AGENT_MAP[selectedAgentId] || selectedAgentId;
+      const coreAgent = coreAgentsById.get(operationalAgentId);
+      const agent = coreAgent || (assignment && this.registry.get(assignment.agentId)) || getAgent(definition.agentId);
       if (!agent) throw new Error(`Unknown agent contract: ${definition.agentId}.`);
       return {
         taskId: ids.get(definition.key),
@@ -250,7 +275,7 @@ class ProjectGenerator {
         generationId,
         projectType,
         title: definition.title,
-        agentId: agent.id,
+        agentId: operationalAgentId,
         dependencies: definition.dependencies.map((key) => ids.get(key)),
         input: {
           projectId,

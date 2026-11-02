@@ -15,6 +15,7 @@ const BASE_CAPABILITIES = [
   "user-experience",
   "data-modeling",
   "ui-generation",
+  "code-generation",
   "backend-development",
   "frontend-development",
   "test-engineering",

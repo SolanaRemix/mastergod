@@ -9,7 +9,9 @@ const { createGameProject, generatePlayableHtml, refineGameSpecification } = req
 const { AuthStore, GameStore, ProjectStore } = require("./src/store");
 const { AgentOrchestrator } = require("./src/services/AgentOrchestrator.ts");
 const { ProjectGenerator } = require("./src/services/ProjectGenerator.ts");
-const { createVerifiedProjectZip } = require("./src/project-archive");
+const { createVerifiedProjectZip, readVerifiedProjectZip } = require("./src/project-archive");
+const { createCoreAgentHandlers } = require("./src/core-agents");
+const { inlineProjectAssets } = require("./src/project-preview");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY_BYTES = 64 * 1024;
@@ -166,6 +168,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
   const authStore = new AuthStore(dataDir);
   const auth = new AuthService(authStore);
   const orchestrator = new AgentOrchestrator(store);
+  for (const [agentId, handler] of createCoreAgentHandlers(store)) orchestrator.registerAgent(agentId, handler);
   const projectGenerator = new ProjectGenerator(store, orchestrator);
   const secureCookies = process.env.NODE_ENV === "production";
   const sessionCookieName = secureCookies ? "__Host-gods_session" : "gods_session";
@@ -309,7 +312,12 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
       }
 
       if (request.method === "GET" && url.pathname === "/api/agents") {
-        return sendJson(response, 200, { agents });
+        return sendJson(response, 200, {
+          agents,
+          operationalAgents: await store.listCoreAgents(),
+          status: "IMPLEMENTED_UNVERIFIED",
+          note: "Local deterministic workers are available; provider-backed model calls are not configured."
+        });
       }
 
       if (request.method === "GET" && url.pathname === "/api/games") {
@@ -508,6 +516,43 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           : sendJson(response, 404, { error: "Project execution not found." });
       }
 
+      const agentExecutionsRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/agent-executions$/);
+      if (request.method === "GET" && agentExecutionsRoute) {
+        const executions = await store.listAgentExecutions(agentExecutionsRoute[1], request.authenticatedUser.id);
+        return executions
+          ? sendJson(response, 200, { executions, status: "VERIFIED" })
+          : sendJson(response, 404, { error: "Project not found." });
+      }
+
+      const previewRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/preview$/);
+      if (request.method === "GET" && previewRoute) {
+        const projectId = previewRoute[1];
+        const project = await store.get(projectId);
+        if (!project || project.ownerId !== request.authenticatedUser.id) {
+          return sendJson(response, 404, { error: "Project not found." });
+        }
+        const entryPath = url.searchParams.get("entry");
+        if (!entryPath) return sendJson(response, 400, { error: "Choose an HTML project artifact to preview." });
+        const entry = await store.readArtifact(projectId, request.authenticatedUser.id, entryPath);
+        if (!entry) return sendJson(response, 404, { error: "HTML preview artifact not found." });
+        let preview;
+        try {
+          preview = await inlineProjectAssets(entry.path, entry.contents,
+            (artifactPath) => store.readArtifact(projectId, request.authenticatedUser.id, artifactPath));
+        } catch (error) {
+          return sendJson(response, error.status || 400, { error: error.message });
+        }
+        response.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "content-security-policy": "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'none'; frame-ancestors 'self'",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "no-referrer",
+          "cache-control": "no-store",
+          "x-gods-preview-artifacts": String(preview.loadedArtifacts)
+        });
+        return response.end(preview.html);
+      }
+
       const projectGenerationRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/generate$/);
       if (request.method === "POST" && projectGenerationRoute) {
         if (!allowGameCreation(request.authenticatedUser.id)) {
@@ -522,7 +567,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           : sendJson(response, 404, { error: "Project not found." });
       }
 
-      const artifactRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/artifacts(?:\/(generate|file|files|upload|directories|history|audit|export|zip|restore|rename|duplicate))?$/);
+      const artifactRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/artifacts(?:\/(generate|file|files|upload|directories|history|audit|export|zip|zip-import|restore|rename|duplicate))?$/);
       if (artifactRoute) {
         const projectId = artifactRoute[1];
         const action = artifactRoute[2];
@@ -719,6 +764,30 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           });
           return response.end(archive);
         }
+        if (request.method === "POST" && action === "zip-import") {
+          const body = await readJson(request, 7 * 1024 * 1024);
+          if (!body || typeof body.archiveBase64 !== "string"
+            || body.archiveBase64.length > 6 * 1024 * 1024
+            || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.archiveBase64)) {
+            return sendJson(response, 400, { error: "Provide a base64-encoded ZIP archive within the upload limit." });
+          }
+          const archive = Buffer.from(body.archiveBase64, "base64");
+          if (archive.toString("base64") !== body.archiveBase64) {
+            return sendJson(response, 400, { error: "ZIP archive encoding is invalid." });
+          }
+          let files;
+          try {
+            files = await readVerifiedProjectZip(archive);
+          } catch (error) {
+            return sendJson(response, 400, { error: error.message });
+          }
+          if (!files.length) return sendJson(response, 400, { error: "ZIP archive contains no importable text files." });
+          const imported = await store.importArtifacts(projectId, ownerId, files);
+          return imported ? sendJson(response, 201, {
+            status: "VERIFIED",
+            imported: imported.map((artifact) => ({ path: artifact.path, version: artifact.version, checksum: artifact.checksum }))
+          }) : sendJson(response, 404, { error: "Project not found." });
+        }
         return sendJson(response, 405, { error: "File operation is not supported." });
       }
 
@@ -762,6 +831,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         VERSION_CONFLICT: 409,
         PATH_CONFLICT: 409,
         ARTIFACTS_EXIST: 409,
+        ARTIFACT_EXISTS: 409,
         PROJECT_NOT_APPROVED: 409,
         EXECUTION_GRAPH_EXISTS: 409,
         EXECUTION_GRAPH_CONFLICT: 409,

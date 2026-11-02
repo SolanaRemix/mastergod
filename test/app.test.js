@@ -8,6 +8,7 @@ const { after, before, test } = require("node:test");
 const { approveRequirements, buildTaskGraph, createDraft, discoverRequirements } = require("../src/blueprint");
 const { agents } = require("../src/agents");
 const { AgentCapabilityRegistry } = require("../src/capability-registry");
+const { createVerifiedProjectZip } = require("../src/project-archive");
 const { AgentOrchestrator } = require("../src/services/AgentOrchestrator.ts");
 const { createServer } = require("../server");
 
@@ -98,7 +99,7 @@ test("approval rejects requirement edits that normalize to empty text", () => {
   }]), /non-empty text/);
 });
 
-test("agent catalog declares complete contracts without overstating provider execution", () => {
+test("legacy agent catalog keeps provider status honest and persistent local roster has 20 roles", async () => {
   assert.equal(agents.length, 21);
   for (const agent of agents) {
     assert.ok(agent.inputContract.projectId);
@@ -109,6 +110,14 @@ test("agent catalog declares complete contracts without overstating provider exe
     assert.equal(agent.deploymentStatus, "not-deployed");
   }
   assert.equal(agents.find((agent) => agent.id === "frontend-engineer").execution, "provider");
+  const response = await fetch(`${baseUrl}/api/agents`);
+  assert.equal(response.status, 200);
+  const catalog = await response.json();
+  assert.equal(catalog.operationalAgents.length, 20);
+  assert.ok(catalog.operationalAgents.every((agent) => agent.availability === "available"));
+  assert.ok(catalog.operationalAgents.every((agent) => agent.specification.executionMode === "deterministic-local"));
+  assert.equal(catalog.operationalAgents.find((agent) => agent.id === "code-generation-agent").specification.securityPermissions[0],
+    "project-artifact-write");
 });
 
 test("capability registry discovers request-specific and registered specialist capabilities", () => {
@@ -539,13 +548,14 @@ test("blueprint generation persists an agent graph and artifact files remain own
   assert.equal(generated.response.status, 201);
   assert.equal(generated.body.status, "IMPLEMENTED_UNVERIFIED");
   assert.equal(generated.body.projectType, "fleet");
-  assert.equal(generated.body.executionStatus, "BLOCKED");
-  assert.match(generated.body.executionNote, /no verified agent workers are registered/i);
+  assert.equal(generated.body.executionStatus, "QUEUED");
+  assert.match(generated.body.executionNote, /queued for registered agent workers/i);
   assert.ok(generated.body.tasks.some((task) => /Fleet, driver, and load workflows/.test(task.title)));
-  assert.ok(generated.body.tasks.every((task) => task.status === "BLOCKED"));
+  assert.ok(generated.body.tasks.some((task) => task.status === "QUEUED"));
+  assert.ok(generated.body.tasks.some((task) => task.status === "BLOCKED"));
   assert.ok(generated.body.selectedAgents.some((agent) => agent.capability === "authentication-design"));
-  assert.ok(generated.body.capabilityGaps.some((gap) => gap.capability === "backend-development"));
-  assert.equal(generated.body.execution.status, "blocked");
+  assert.equal(generated.body.capabilityGaps.length, 0);
+  assert.equal(generated.body.execution.status, "executing");
   assert.equal(generated.body.execution.taskGraph.length, generated.body.taskCount);
   const persistedExecution = await json(`/api/projects/${truckingProject.id}/execution`);
   assert.equal(persistedExecution.response.status, 200);
@@ -574,19 +584,54 @@ test("blueprint generation persists an agent graph and artifact files remain own
   });
   assert.ok(workflow.body.selectedAgents.some((agent) => agent.capability === "workflow-automation"));
   assert.ok(workflow.body.tasks.some((task) => task.input.capability === "workflow-automation"));
-  const noWorker = await json(`/api/projects/${truckingProject.id}/tasks/${encodeURIComponent(generated.body.tasks[0].taskId)}/run`, {
+  const rootTask = generated.body.tasks.find((task) => task.status === "QUEUED");
+  const firstExecution = await json(`/api/projects/${truckingProject.id}/tasks/${encodeURIComponent(rootTask.taskId)}/run`, {
     method: "POST",
     body: JSON.stringify({})
   });
-  assert.equal(noWorker.response.status, 409);
-  assert.equal(noWorker.body.task.status, "BLOCKED");
+  assert.equal(firstExecution.response.status, 200);
+  assert.equal(firstExecution.body.task.status, "COMPLETED");
+  for (let pass = 0; pass < 8; pass += 1) {
+    const { body: current } = await json(`/api/projects/${truckingProject.id}/tasks`);
+    const codeGeneration = current.tasks.find((task) => task.agentId === "code-generation-agent");
+    if (codeGeneration.status === "COMPLETED") break;
+    for (const task of current.tasks) {
+      if (!["QUEUED", "BLOCKED"].includes(task.status)) continue;
+      await json(`/api/projects/${truckingProject.id}/tasks/${encodeURIComponent(task.taskId)}/run`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+    }
+  }
+  const generatedCode = await json(`/api/projects/${truckingProject.id}/artifacts/file?path=generated-app%2Findex.html`);
+  assert.equal(generatedCode.response.status, 200);
+  assert.match(generatedCode.body.artifact.contents, /trucking tool/i);
+  const livePreview = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/preview?entry=generated-app%2Findex.html`, {
+    headers: { cookie: owner.cookie }
+  });
+  assert.equal(livePreview.status, 200);
+  assert.match(livePreview.headers.get("content-security-policy"), /sandbox allow-scripts/);
+  assert.match(livePreview.headers.get("content-security-policy"), /connect-src 'none'/);
+  const previewHtml = await livePreview.text();
+  assert.match(previewHtml, /PROJECT WORKSPACE/);
+  assert.match(previewHtml, /localStorage/);
+  assert.doesNotMatch(previewHtml, /<script[^>]+src=/i);
+  const blockedPreviewRef = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/preview?entry=generated-app%2Findex.html`, {
+    headers: { cookie: other.cookie }
+  });
+  assert.equal(blockedPreviewRef.status, 404);
+  const agentRuns = await json(`/api/projects/${truckingProject.id}/agent-executions`);
+  assert.equal(agentRuns.response.status, 200);
+  assert.ok(agentRuns.body.executions.some((run) => run.agentId === "code-generation-agent"
+    && run.status === "COMPLETED" && run.modelProvider === null
+    && run.toolsInvoked.includes("project-artifact-write")));
   const taskEvents = await json(`/api/projects/${truckingProject.id}/tasks/${encodeURIComponent(generated.body.tasks[0].taskId)}/events`);
   assert.equal(taskEvents.response.status, 200);
   assert.ok(taskEvents.body.events.length > 0);
 
   const ownerTree = await json(`/api/projects/${truckingProject.id}/artifacts`);
   assert.equal(ownerTree.response.status, 200);
-  assert.equal(ownerTree.body.files.length, 0);
+  assert.equal(ownerTree.body.files.length, 3);
   assert.equal((await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts`, {
     headers: { cookie: other.cookie }
   })).status, 404);
@@ -740,6 +785,39 @@ test("blueprint generation persists an agent graph and artifact files remain own
   assert.match(archivePaths.stdout, /src\/hello\.js/);
   assert.doesNotMatch(archivePaths.stdout, /\.env|gods\.sqlite|credentials/i);
   await fs.rm(zipDirectory, { recursive: true, force: true });
+  const importProjectResponse = await fetch(`${baseUrl}/api/projects`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ prompt: "Create a separate project for testing secure ZIP imports." })
+  });
+  const { project: importProject } = await importProjectResponse.json();
+  const importApproval = await fetch(`${baseUrl}/api/projects/${importProject.id}/approve`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      decisions: importProject.requirements.map((requirement) => ({
+        id: requirement.id, text: requirement.text, approved: true
+      }))
+    })
+  });
+  assert.equal(importApproval.status, 200);
+  const importZip = await createVerifiedProjectZip([
+    { path: "src/hello.js", contents: "export const hello = 'world';" },
+    { path: "docs/guide.md", contents: "# Imported project" }
+  ]);
+  const importResult = await json(`/api/projects/${importProject.id}/artifacts/zip-import`, {
+    method: "POST",
+    body: JSON.stringify({ archiveBase64: importZip.toString("base64") })
+  });
+  assert.equal(importResult.response.status, 201);
+  assert.equal(importResult.body.imported.length, 2);
+  assert.equal((await json(`/api/projects/${importProject.id}/artifacts/file?path=src%2Fhello.js`)).body.artifact.contents,
+    "export const hello = 'world';");
+  const importConflict = await json(`/api/projects/${importProject.id}/artifacts/zip-import`, {
+    method: "POST",
+    body: JSON.stringify({ archiveBase64: importZip.toString("base64") })
+  });
+  assert.equal(importConflict.response.status, 409);
   const audit = await json(`/api/projects/${truckingProject.id}/artifacts/audit`);
   assert.ok(audit.body.audit.some((entry) => entry.action === "restored"));
 

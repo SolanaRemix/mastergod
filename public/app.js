@@ -340,6 +340,26 @@ function renderAgentTasks(project, container, tasks) {
       reason.textContent = task.blockedReason;
       card.append(reason);
     }
+    if (["QUEUED", "BLOCKED", "FAILED"].includes(task.status)) {
+      const runTask = addButton("Run specialist task", "primary-button");
+      runTask.addEventListener("click", async () => {
+        runTask.disabled = true;
+        try {
+          await api(`/api/projects/${encodeURIComponent(project.id)}/tasks/${encodeURIComponent(task.taskId)}/run`, {
+            method: "POST",
+            body: JSON.stringify({})
+          });
+          const { tasks: latest } = await api(`/api/projects/${encodeURIComponent(project.id)}/tasks`);
+          renderAgentTasks(project, container, latest);
+          liveRegion.textContent = `${task.agentId} completed or updated its task. Review the saved output and evidence.`;
+        } catch (error) {
+          showError(error.message);
+        } finally {
+          runTask.disabled = false;
+        }
+      });
+      card.append(runTask);
+    }
     const activity = document.createElement("details");
     activity.className = "agent-task-events";
     const summary = document.createElement("summary");
@@ -371,6 +391,11 @@ function renderAgentTasks(project, container, tasks) {
 
 function encodeBase64Utf8(value) {
   const bytes = new TextEncoder().encode(value);
+  return encodeBase64Bytes(bytes);
+}
+
+function encodeBase64Bytes(value) {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
   let binary = "";
   const chunkSize = 0x8000;
   for (let offset = 0; offset < bytes.length; offset += chunkSize) {
@@ -467,7 +492,41 @@ async function renderArtifactManager(project, container, selectedPath) {
     uploadLabel.className = "secondary-button";
     uploadLabel.textContent = "Upload UTF-8 text files";
     uploadLabel.append(uploadInput);
-    toolbar.append(createFile, createFolder, exportLink, zipLink, uploadLabel);
+    const zipImportInput = document.createElement("input");
+    zipImportInput.type = "file";
+    zipImportInput.accept = ".zip,application/zip";
+    zipImportInput.setAttribute("aria-label", "Import a project ZIP without overwriting existing files");
+    zipImportInput.addEventListener("change", async () => {
+      const archiveFile = zipImportInput.files?.[0];
+      if (!archiveFile) return;
+      if (archiveFile.size > 5 * 1024 * 1024) {
+        showError("Project ZIP uploads are limited to 5 MiB.");
+        zipImportInput.value = "";
+        return;
+      }
+      if (!window.confirm("Import text files from this ZIP? Existing files will not be overwritten; path conflicts will stop the import.")) {
+        zipImportInput.value = "";
+        return;
+      }
+      try {
+        const archiveBase64 = encodeBase64Bytes(await archiveFile.arrayBuffer());
+        const result = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/zip-import`, {
+          method: "POST",
+          body: JSON.stringify({ archiveBase64 })
+        });
+        await renderArtifactManager(project, container);
+        liveRegion.textContent = `Imported ${result.imported.length} files and read them back from project storage.`;
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        zipImportInput.value = "";
+      }
+    });
+    const zipImportLabel = document.createElement("label");
+    zipImportLabel.className = "secondary-button";
+    zipImportLabel.textContent = "Import project ZIP";
+    zipImportLabel.append(zipImportInput);
+    toolbar.append(createFile, createFolder, exportLink, zipLink, uploadLabel, zipImportLabel);
 
     const columns = document.createElement("div");
     columns.className = "artifact-columns";
@@ -575,6 +634,64 @@ async function renderArtifactManager(project, container, selectedPath) {
       } else {
         markdownPreview.classList.add("hidden");
       }
+      const livePreview = document.createElement("section");
+      livePreview.className = "project-live-preview";
+      if (artifact.path.toLowerCase().endsWith(".html")) {
+        const previewHeading = document.createElement("h6");
+        previewHeading.textContent = "Sandboxed preview of this saved HTML file";
+        const previewControls = document.createElement("div");
+        previewControls.className = "artifact-toolbar";
+        const viewport = document.createElement("select");
+        viewport.className = "glass-select preview-viewport-select";
+        viewport.setAttribute("aria-label", "Preview viewport width");
+        for (const [label, value] of [["Mobile · 390px", "390"], ["Large mobile · 430px", "430"], ["Tablet · 768px", "768"], ["Laptop · 1024px", "1024"], ["Desktop · 1440px", "1440"], ["Custom width", "custom"]]) {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = label;
+          viewport.append(option);
+        }
+        const previewStatus = document.createElement("span");
+        previewStatus.className = "helper-text";
+        previewStatus.textContent = "Preview runs in a sandbox without network access.";
+        const previewFrame = document.createElement("iframe");
+        previewFrame.className = "project-preview-frame";
+        previewFrame.title = `Preview of ${artifact.path}`;
+        previewFrame.setAttribute("sandbox", "allow-scripts");
+        previewFrame.setAttribute("loading", "lazy");
+        previewFrame.hidden = true;
+        const setViewport = () => {
+          let width = Number(viewport.value);
+          if (viewport.value === "custom") {
+            width = Number(window.prompt("Custom preview width in pixels (320–1920)", "1280"));
+            if (!Number.isInteger(width) || width < 320 || width > 1920) {
+              viewport.value = "390";
+              width = 390;
+            }
+          }
+          previewFrame.style.width = `${width}px`;
+          previewFrame.style.maxWidth = "100%";
+        };
+        viewport.addEventListener("change", setViewport);
+        setViewport();
+        const runPreview = addButton("Run saved-file preview", "primary-button");
+        runPreview.addEventListener("click", () => {
+          previewFrame.src = `/api/projects/${encodeURIComponent(project.id)}/preview?entry=${encodeURIComponent(artifact.path)}`;
+          previewFrame.hidden = false;
+          previewStatus.textContent = "Loaded this saved project file; external network requests are blocked.";
+        });
+        const stopPreview = addButton("Stop");
+        stopPreview.addEventListener("click", () => {
+          previewFrame.src = "about:blank";
+          previewFrame.hidden = true;
+          previewStatus.textContent = "Preview stopped.";
+        });
+        const restartPreview = addButton("Restart");
+        restartPreview.addEventListener("click", () => {
+          if (previewFrame.src && !previewFrame.src.endsWith("about:blank")) previewFrame.src = previewFrame.src;
+        });
+        previewControls.append(viewport, runPreview, stopPreview, restartPreview, previewStatus);
+        livePreview.append(previewHeading, previewControls, previewFrame);
+      }
       const controls = document.createElement("div");
       controls.className = "artifact-toolbar";
       const save = addButton("Save changes", "primary-button");
@@ -680,7 +797,7 @@ async function renderArtifactManager(project, container, selectedPath) {
           showError(error.message);
         }
       });
-      editorPanel.append(fileTitle, state, editorShell, markdownPreview, controls, versionLabel, versions, restore);
+      editorPanel.append(fileTitle, state, editorShell, markdownPreview, livePreview, controls, versionLabel, versions, restore);
       columns.append(editorPanel);
     } else {
       const empty = document.createElement("p");

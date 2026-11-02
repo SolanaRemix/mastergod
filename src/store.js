@@ -4,6 +4,7 @@ const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { randomUUID } = require("node:crypto");
 const { isProtectedArtifactPath, validateArtifactPath } = require("./artifacts");
+const { CORE_AGENT_DEFINITIONS } = require("./core-agents");
 
 const stores = new Map();
 const EXECUTION_STATUSES = new Set([
@@ -252,13 +253,64 @@ class PersistenceStore {
       );
       CREATE INDEX IF NOT EXISTS agentic_executions_owner_project
         ON agentic_executions(owner_id, project_id, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS core_agents (
+        agent_id TEXT PRIMARY KEY NOT NULL,
+        version TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        capabilities TEXT NOT NULL CHECK (json_valid(capabilities)),
+        specification TEXT NOT NULL CHECK (json_valid(specification)),
+        availability TEXT NOT NULL CHECK (availability IN ('available', 'disabled')),
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agent_executions (
+        id TEXT PRIMARY KEY NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        task_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL REFERENCES core_agents(agent_id),
+        agent_version TEXT NOT NULL,
+        input TEXT NOT NULL CHECK (json_valid(input)),
+        output TEXT CHECK (output IS NULL OR json_valid(output)),
+        model_provider TEXT,
+        model_id TEXT,
+        tools_invoked TEXT NOT NULL CHECK (json_valid(tools_invoked)),
+        status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETED', 'BLOCKED', 'FAILED')),
+        error TEXT CHECK (error IS NULL OR json_valid(error)),
+        validation TEXT CHECK (validation IS NULL OR json_valid(validation)),
+        started_at TEXT NOT NULL,
+        finished_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS agent_executions_owner_project
+        ON agent_executions(owner_id, project_id, started_at DESC);
       CREATE TABLE IF NOT EXISTS migrations (
         version INTEGER PRIMARY KEY NOT NULL,
         applied_at TEXT NOT NULL
       );
     `);
+    this.seedCoreAgents();
     await this.importLegacyFiles();
     return this;
+  }
+
+  seedCoreAgents() {
+    const insert = this.database.prepare(`
+      INSERT OR IGNORE INTO core_agents (
+        agent_id, version, name, description, capabilities, specification, availability, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'available', ?)
+    `);
+    const now = new Date().toISOString();
+    for (const agent of CORE_AGENT_DEFINITIONS) {
+      insert.run(
+        agent.id,
+        agent.version,
+        agent.name,
+        agent.description,
+        JSON.stringify(agent.capabilities),
+        JSON.stringify(agent),
+        now
+      );
+    }
   }
 
   async importLegacyFiles() {
@@ -1031,6 +1083,74 @@ class PersistenceStore {
     });
   }
 
+  async importProjectArtifacts(projectId, ownerId, artifacts) {
+    await this.initialize();
+    if (!Array.isArray(artifacts) || artifacts.length < 1 || artifacts.length > 500) {
+      throw new Error("Project import must contain between 1 and 500 text files.");
+    }
+    let totalBytes = 0;
+    const checked = artifacts.map((artifact) => {
+      const artifactPath = validateArtifactPath(artifact.path);
+      if (typeof artifact.contents !== "string" || typeof artifact.language !== "string"
+        || !/^[a-z0-9+#.-]{1,24}$/i.test(artifact.language)) {
+        throw new Error("Project import contains an invalid text artifact.");
+      }
+      const sizeBytes = Buffer.byteLength(artifact.contents, "utf8");
+      totalBytes += sizeBytes;
+      if (sizeBytes > 256 * 1024 || totalBytes > 4 * 1024 * 1024) {
+        throw new Error("Project import exceeds the per-file or total size limit.");
+      }
+      return { ...artifact, path: artifactPath, sizeBytes };
+    });
+    if (new Set(checked.map((artifact) => artifact.path)).size !== checked.length) {
+      throw new Error("Project import cannot contain duplicate paths.");
+    }
+    const now = new Date().toISOString();
+    return this.transaction(() => {
+      if (!this.database.prepare(`
+        SELECT 1 FROM projects WHERE id = ? AND owner_id = ?
+      `).get(projectId, ownerId)) return null;
+      for (const artifact of checked) this.assertArtifactPathAvailable(projectId, artifact.path);
+      const project = this.database.prepare(`
+        SELECT payload FROM projects WHERE id = ? AND owner_id = ?
+      `).get(projectId, ownerId);
+      const projectData = JSON.parse(project.payload);
+      const requirementIds = projectData.requirements
+        .filter((requirement) => requirement.decision === "APPROVED")
+        .map((requirement) => requirement.id);
+      const insert = this.database.prepare(`
+        INSERT INTO project_artifacts (
+          project_id, owner_id, path, language, contents, size_bytes, checksum, version,
+          status, responsible_agent, task_id, requirement_ids, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'IMPLEMENTED_UNVERIFIED', 'project-import', ?, ?, ?, ?)
+      `);
+      const { sha256 } = require("./artifacts");
+      for (const artifact of checked) {
+        const checksum = sha256(artifact.contents);
+        const taskId = `PROJECT-IMPORT-${randomUUID()}`;
+        insert.run(projectId, ownerId, artifact.path, artifact.language, artifact.contents,
+          artifact.sizeBytes, checksum, taskId, JSON.stringify(requirementIds), now, now);
+        this.insertArtifactVersion(projectId, artifact.path, 1, {
+          contents: artifact.contents,
+          sizeBytes: artifact.sizeBytes,
+          checksum,
+          status: "IMPLEMENTED_UNVERIFIED"
+        }, ownerId, "Imported from a verified project ZIP.", now);
+        this.insertArtifactDirectories(projectId, ownerId, artifact.path, now);
+      }
+      this.recordArtifactAudit(projectId, ownerId, "zip-imported", "", {
+        fileCount: checked.length,
+        paths: checked.map((artifact) => artifact.path)
+      }, now);
+      const readBack = this.listProjectArtifactsSync(projectId, ownerId);
+      if (checked.some((artifact) => !readBack.some((saved) => saved.path === artifact.path
+        && saved.checksum === sha256(artifact.contents) && saved.version === 1))) {
+        throw new Error("Imported ZIP files did not pass database read-back verification.");
+      }
+      return readBack.filter((saved) => checked.some((artifact) => artifact.path === saved.path));
+    });
+  }
+
   readProjectArtifactSync(projectId, ownerId, artifactPath) {
     const artifact = this.database.prepare(`
       SELECT path, language, contents, size_bytes AS sizeBytes, checksum, version, status,
@@ -1374,6 +1494,98 @@ class PersistenceStore {
     return row ? JSON.parse(row.execution) : null;
   }
 
+  async listCoreAgents() {
+    await this.initialize();
+    return this.database.prepare(`
+      SELECT agent_id AS id, version, name, description, capabilities, specification,
+        availability, updated_at AS updatedAt
+      FROM core_agents ORDER BY agent_id
+    `).all().map((row) => ({
+      ...row,
+      capabilities: JSON.parse(row.capabilities),
+      specification: JSON.parse(row.specification)
+    }));
+  }
+
+  async startAgentExecution({ projectId, ownerId, taskId, agentId, version, input, toolsInvoked }) {
+    await this.initialize();
+    return this.transaction(() => {
+      const ownsProject = this.database.prepare(`
+        SELECT 1 FROM projects WHERE id = ? AND owner_id = ?
+      `).get(projectId, ownerId);
+      const task = this.database.prepare(`
+        SELECT 1 FROM agent_tasks WHERE project_id = ? AND owner_id = ? AND task_id = ?
+      `).get(projectId, ownerId, taskId);
+      const agent = this.database.prepare(`
+        SELECT version, availability FROM core_agents WHERE agent_id = ?
+      `).get(agentId);
+      if (!ownsProject || !task || !agent || agent.availability !== "available" || agent.version !== version) {
+        throw new Error("Agent execution must reference an owned project, existing task, and available agent version.");
+      }
+      const id = randomUUID();
+      const startedAt = new Date().toISOString();
+      this.database.prepare(`
+        INSERT INTO agent_executions (
+          id, project_id, owner_id, task_id, agent_id, agent_version, input, output,
+          model_provider, model_id, tools_invoked, status, error, validation, started_at, finished_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 'RUNNING', NULL, NULL, ?, NULL)
+      `).run(id, projectId, ownerId, taskId, agentId, version, JSON.stringify(input),
+        JSON.stringify(toolsInvoked), startedAt);
+      return id;
+    });
+  }
+
+  async finishAgentExecution(id, { status, output = null, error = null, validation = null, toolsInvoked = null }) {
+    await this.initialize();
+    if (!["COMPLETED", "BLOCKED", "FAILED"].includes(status)) throw new Error("Agent execution result status is invalid.");
+    const updated = this.database.prepare(`
+      UPDATE agent_executions SET output = ?, error = ?, validation = ?, tools_invoked = COALESCE(?, tools_invoked), status = ?, finished_at = ?
+      WHERE id = ? AND status = 'RUNNING'
+    `).run(
+      output === null ? null : JSON.stringify(output),
+      error === null ? null : JSON.stringify(error),
+      validation === null ? null : JSON.stringify(validation),
+      toolsInvoked === null ? null : JSON.stringify(toolsInvoked),
+      status,
+      new Date().toISOString(),
+      id
+    );
+    if (Number(updated.changes) !== 1) throw new Error("Agent execution could not be finalized exactly once.");
+    const row = this.database.prepare(`
+      SELECT output, error, validation, status, started_at AS startedAt, finished_at AS finishedAt
+      FROM agent_executions WHERE id = ?
+    `).get(id);
+    if (!row || row.status !== status || !row.finishedAt) throw new Error("Agent execution result failed database read-back.");
+    return {
+      ...row,
+      output: row.output ? JSON.parse(row.output) : null,
+      error: row.error ? JSON.parse(row.error) : null,
+      validation: row.validation ? JSON.parse(row.validation) : null
+    };
+  }
+
+  async listAgentExecutions(projectId, ownerId) {
+    await this.initialize();
+    if (!this.database.prepare(`
+      SELECT 1 FROM projects WHERE id = ? AND owner_id = ?
+    `).get(projectId, ownerId)) return null;
+    return this.database.prepare(`
+      SELECT id, project_id AS projectId, owner_id AS ownerId, task_id AS taskId,
+        agent_id AS agentId, agent_version AS agentVersion, input, output,
+        model_provider AS modelProvider, model_id AS modelId, tools_invoked AS toolsInvoked,
+        status, error, validation, started_at AS startedAt, finished_at AS finishedAt
+      FROM agent_executions WHERE project_id = ? AND owner_id = ?
+      ORDER BY started_at, id
+    `).all(projectId, ownerId).map((row) => ({
+      ...row,
+      input: JSON.parse(row.input),
+      output: row.output ? JSON.parse(row.output) : null,
+      toolsInvoked: JSON.parse(row.toolsInvoked),
+      error: row.error ? JSON.parse(row.error) : null,
+      validation: row.validation ? JSON.parse(row.validation) : null
+    }));
+  }
+
   listAgentTasksSync(projectId, ownerId) {
     return this.database.prepare(`
       SELECT task_id AS taskId, project_id AS projectId, owner_id AS ownerId,
@@ -1670,6 +1882,7 @@ class ProjectStore {
   createArtifact(id, ownerId, artifactPath, contents, language) {
     return this.persistence.createProjectArtifact(id, ownerId, artifactPath, contents, language);
   }
+  importArtifacts(id, ownerId, artifacts) { return this.persistence.importProjectArtifacts(id, ownerId, artifacts); }
   readArtifact(id, ownerId, artifactPath) { return this.persistence.readProjectArtifact(id, ownerId, artifactPath); }
   writeArtifact(id, ownerId, artifactPath, contents, version, summary) {
     return this.persistence.writeProjectArtifact(id, ownerId, artifactPath, contents, version, summary);
@@ -1701,6 +1914,10 @@ class ProjectStore {
   }
   createAgentTasks(id, ownerId, tasks, execution) { return this.persistence.createAgentTasks(id, ownerId, tasks, execution); }
   getAgenticExecution(id, ownerId) { return this.persistence.getAgenticExecution(id, ownerId); }
+  listCoreAgents() { return this.persistence.listCoreAgents(); }
+  startAgentExecution(run) { return this.persistence.startAgentExecution(run); }
+  finishAgentExecution(id, result) { return this.persistence.finishAgentExecution(id, result); }
+  listAgentExecutions(id, ownerId) { return this.persistence.listAgentExecutions(id, ownerId); }
   listAgentTasks(id, ownerId) { return this.persistence.listAgentTasks(id, ownerId); }
   getAgentTask(id, ownerId, taskId) { return this.persistence.getAgentTask(id, ownerId, taskId); }
   transitionAgentTask(id, ownerId, taskId, expected, next, update, details) {

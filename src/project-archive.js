@@ -80,4 +80,59 @@ async function createVerifiedProjectZip(files) {
   }
 }
 
-module.exports = { createVerifiedProjectZip, MAX_PROJECT_BYTES, MAX_PROJECT_FILES };
+async function readVerifiedProjectZip(archive) {
+  if (!Buffer.isBuffer(archive) || archive.length < 22 || archive.length > MAX_PROJECT_BYTES + 1024 * 1024) {
+    throw new Error("Project ZIP is missing, malformed, or exceeds the compressed upload limit.");
+  }
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "gods-project-import-"));
+  const archivePath = path.join(temporaryDirectory, "upload.zip");
+  try {
+    await fs.writeFile(archivePath, archive, { flag: "wx", mode: 0o600 });
+    run("unzip", ["-tqq", archivePath]);
+    const rawEntries = run("unzip", ["-Z", "-1", archivePath]).split(/\r?\n/).filter(Boolean);
+    if (rawEntries.length > MAX_PROJECT_FILES + 500) throw new Error("Project ZIP contains too many entries.");
+    const files = [];
+    const seen = new Set();
+    let totalBytes = 0;
+    for (const rawEntry of rawEntries) {
+      const isDirectory = rawEntry.endsWith("/");
+      const artifactPath = validateArtifactPath(isDirectory ? rawEntry.slice(0, -1) : rawEntry);
+      if (seen.has(artifactPath)) throw new Error("Project ZIP contains duplicate paths.");
+      seen.add(artifactPath);
+      if (isDirectory) continue;
+      if (files.length >= MAX_PROJECT_FILES) throw new Error(`Project ZIP supports at most ${MAX_PROJECT_FILES} files.`);
+      const extracted = spawnSync("unzip", ["-p", archivePath, artifactPath], {
+        encoding: "buffer",
+        timeout: 15_000,
+        maxBuffer: 256 * 1024 + 1
+      });
+      if (extracted.error || extracted.status !== 0 || !Buffer.isBuffer(extracted.stdout)) {
+        throw new Error(`Project ZIP contains an unreadable or oversized file: ${artifactPath}.`);
+      }
+      totalBytes += extracted.stdout.length;
+      if (totalBytes > MAX_PROJECT_BYTES) throw new Error("Project ZIP exceeds the 4 MiB uncompressed limit.");
+      let contents;
+      try {
+        contents = new TextDecoder("utf-8", { fatal: true }).decode(extracted.stdout);
+      } catch {
+        throw new Error(`Project ZIP contains non-UTF-8 binary data: ${artifactPath}.`);
+      }
+      if (contents.includes("\u0000")) throw new Error(`Project ZIP contains binary data: ${artifactPath}.`);
+      files.push({
+        path: artifactPath,
+        contents,
+        language: artifactPath.split(".").pop() || "text"
+      });
+    }
+    return files;
+  } finally {
+    await fs.rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
+module.exports = {
+  createVerifiedProjectZip,
+  readVerifiedProjectZip,
+  MAX_PROJECT_BYTES,
+  MAX_PROJECT_FILES
+};

@@ -24,6 +24,7 @@ type AgentTask = {
 type TaskHandler = (input: Record<string, unknown>, context: {
   task: AgentTask;
   signal: AbortSignal;
+  executionId: string | null;
 }) => Promise<Record<string, unknown>>;
 
 type TaskStore = {
@@ -40,9 +41,13 @@ type TaskStore = {
     details: Record<string, unknown>
   ): Promise<AgentTask | null>;
   listAgentTaskEvents(projectId: string, ownerId: string, taskId: string): Promise<Record<string, unknown>[] | null>;
+  startAgentExecution(run: Record<string, unknown>): Promise<string>;
+  finishAgentExecution(id: string, result: Record<string, unknown>): Promise<Record<string, unknown>>;
 };
 
 const { randomUUID } = require("node:crypto");
+const { CORE_AGENT_DEFINITIONS } = require("../core-agents");
+const coreAgentsById = new Map(CORE_AGENT_DEFINITIONS.map((agent: any) => [agent.id, agent]));
 
 const TRANSITIONS: Record<AgentTaskState, AgentTaskState[]> = {
   BLOCKED: ["QUEUED"],
@@ -195,6 +200,18 @@ class AgentOrchestrator {
     }, { reason: "worker-started", workerId: task.agentId });
     if (!running) return this.store.getAgentTask(projectId, ownerId, taskId);
 
+    const agent = coreAgentsById.get(running.agentId) as { version: string; availableTools: string[] } | undefined;
+    const agentExecutionId = agent
+      ? await this.store.startAgentExecution({
+          projectId,
+          ownerId,
+          taskId,
+          agentId: running.agentId,
+          version: agent.version,
+          input: running.input,
+          toolsInvoked: []
+        })
+      : null;
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -207,24 +224,42 @@ class AgentOrchestrator {
         }, Math.max(1, running.timeoutSeconds) * 1000);
       });
       const result = await Promise.race([
-        handler(running.input, { task: running, signal: controller.signal }),
+        handler(running.input, { task: running, signal: controller.signal, executionId: agentExecutionId }),
         timedOut
       ]);
       const output = validateResult(result);
-      return this.transition(running, "COMPLETED", {
+      const completed = await this.transition(running, "COMPLETED", {
         result: output,
         error: null
       }, { reason: "worker-completed", outputStatus: output.status });
+      if (agentExecutionId) await this.store.finishAgentExecution(agentExecutionId, {
+        status: "COMPLETED",
+        output,
+        toolsInvoked: Array.isArray(output.toolCalls) ? output.toolCalls : [],
+        validation: { outputContract: "VERIFIED", taskStateReadBack: completed?.status === "COMPLETED" }
+      });
+      return completed;
     } catch (error) {
       const failure = asError(error);
       if (failure.code === "TASK_TIMEOUT") failure.retryable = false;
       if (failure.code === "AGENT_BLOCKED") {
-        return this.transition(running, "BLOCKED", {
+        const blocked = await this.transition(running, "BLOCKED", {
           blockedReason: failure.message,
           error: failure
         }, { reason: "worker-reported-blocker" });
+        if (agentExecutionId) await this.store.finishAgentExecution(agentExecutionId, {
+          status: "BLOCKED",
+          error: failure,
+          validation: { outputContract: "BLOCKED" }
+        });
+        return blocked;
       }
       if (failure.retryable !== false && running.attempt < running.maxAttempts) {
+        if (agentExecutionId) await this.store.finishAgentExecution(agentExecutionId, {
+          status: "FAILED",
+          error: failure,
+          validation: { outputContract: "RETRYING" }
+        });
         const retrying = await this.transition(running, "RETRYING", {
           error: failure
         }, { reason: "retry-scheduled", failure });
@@ -235,6 +270,11 @@ class AgentOrchestrator {
         if (!queued) return null;
         return this.executeTask(projectId, ownerId, taskId);
       }
+      if (agentExecutionId) await this.store.finishAgentExecution(agentExecutionId, {
+        status: "FAILED",
+        error: failure,
+        validation: { outputContract: "FAILED" }
+      });
       return this.transition(running, "FAILED", {
         error: failure
       }, { reason: "attempts-exhausted", failure });
