@@ -201,7 +201,7 @@
       "No managed database backups or automated super-admin identity verification",
       "No configured email delivery for password recovery",
       "Authentication rate limiting is process-local and not shared across instances",
-      "No configured AI provider or code-generation workers; blueprint task graphs are persisted but no generated project source can be produced",
+      "No configured AI provider; deterministic local code-generation can create an editable frontend prototype, but it is not a complete production application",
       "Local specialist workers use deterministic rules; no configured AI provider, model routing, model evaluation, or provider-backed code generation is available",
       "The local code-generation worker creates a client-side HTML/CSS/JavaScript prototype only; generated CRUD is browser-local and does not provide authenticated backend/database integration",
       "Full isolated dependency installation, compilation, arbitrary application runtime, and durable background build queue are unavailable; current build endpoint only performs bounded syntax/structure checks",

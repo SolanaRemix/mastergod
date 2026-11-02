@@ -853,6 +853,12 @@ test("blueprint generation persists an agent graph and artifact files remain own
   assert.equal(directRuns.length, 20);
   assert.equal(directRuns.filter((run) => run.status === "COMPLETED").length, 17);
   assert.equal(directRuns.filter((run) => run.status === "BLOCKED").length, 3);
+  const foreignAgentRun = await fetch(`${baseUrl}/api/projects/${importProject.id}/agents/requirements-intelligence/execute`, {
+    method: "POST",
+    headers: { cookie: other.cookie, "content-type": "application/json", origin: baseUrl },
+    body: "{}"
+  });
+  assert.equal(foreignAgentRun.status, 404);
   const directRunHistory = await json(`/api/projects/${importProject.id}/agent-executions`);
   assert.equal(directRunHistory.body.executions.length, 20);
   assert.ok(directRunHistory.body.executions.every((run) => run.agentVersion === "1.0.0"

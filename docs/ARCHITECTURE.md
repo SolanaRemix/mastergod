@@ -10,10 +10,10 @@ The request path is:
 2. `src/blueprint.js` creates editable requirement records.
 3. An authenticated user approves the blueprint.
 4. `src/services/ProjectGenerator.ts` validates approved requirements and asks `src/capability-registry.js` to match capabilities to catalog entries.
-5. `src/services/AgentOrchestrator.ts` prepares a dependency graph and marks tasks blocked unless an executable worker is registered.
+5. `src/services/AgentOrchestrator.ts` prepares a dependency graph, queues tasks when registered local handlers and dependencies are available, and records each execution.
 6. `src/store.js` stores the graph and execution snapshot in SQLite; the owner-scoped execution endpoint reads the snapshot back.
 
-The current boundary is planning and tracking. This path does not generate application source, call a model provider, or deploy an application.
+The local code-generation handler can write editable, project-specific HTML/CSS/JavaScript prototype files to the SQLite artifact store. The specialists use deterministic local rules, not model providers. They do not generate a complete production application, execute user code, or deploy an application.
 
 ## Module ownership
 

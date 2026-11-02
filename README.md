@@ -18,16 +18,17 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Create an account with a pa
 2. Review and edit the locally split requirement statements.
 3. Approve or reject each requirement.
 4. Download the persisted `gods.blueprint.yaml` for the project.
-5. Inspect the task contracts. Implementation tasks remain visibly `BLOCKED` because this repository has no configured AI provider or secure worker.
-6. For an approved plan, create and review a request-derived capability team, explicit availability gaps, and a deterministic task graph. The original request, selected agents, gaps, and graph are persisted together. Tasks remain `BLOCKED` until verified worker handlers are configured; graph planning does not generate source code.
+5. Generate a request-derived capability team and task graph. The original request, selected agents, gaps, and graph are persisted together. Twenty deterministic local specialist handlers are registered and can be run on an approved project; provider-dependent capabilities remain `BLOCKED`.
+6. Run a local code-generation task to create editable HTML/CSS/JavaScript prototype files, then use the artifact manager to edit, version, upload, download, preview saved HTML, or import/export text-only project ZIPs. These local handlers do not call AI models and the prototype does not provide production backend, authentication, or database features.
+7. Run a bounded static build check for source syntax and file structure. It does not install dependencies, compile, or execute arbitrary project code.
 
 Project APIs require an authenticated account and only return projects owned by that account. New accounts are regular users; matching an email address never grants administrator rights.
 
 ### Project artifact file manager
 
-`ProjectGenerator` validates that a saved, approved blueprint exactly matches its approved requirements, discovers capabilities from approved requirement text, selects matching catalog entries, reports missing or undeployed capabilities, and persists the execution snapshot with its task graph. The capability registry supports validated in-process specialist descriptors; it is not a persistent agent marketplace or autonomous agent factory. `AgentOrchestrator` records guarded task-state transitions and event history in SQLite. No worker is configured in this repository, so generation reports `IMPLEMENTED_UNVERIFIED`/`BLOCKED` and produces no source files. The former static scaffold endpoint is retired; existing saved artifacts are preserved and remain manageable.
+`ProjectGenerator` validates that a saved, approved blueprint exactly matches its approved requirements, discovers capabilities from approved requirement text, selects matching catalog entries, reports missing or undeployed capabilities, and persists the execution snapshot with its task graph. Twenty deterministic local specialists are registered with bounded handlers and persisted execution records; an approved project's eligible task can run through the orchestrator or a direct specialist endpoint. These are local rule-based workers, not provider-backed AI agents. The capability registry supports validated in-process specialist descriptors; it is not a persistent agent marketplace or autonomous agent factory.
 
-The file manager supports read, create, edit, copy, rename, delete, download, folder operations, version history, restore, and JSON project export. Writes use optimistic version checks and are read back from SQLite before success is returned. The endpoints are owner-scoped under `/api/projects/:id/artifacts`; state-changing requests require same-origin JSON. Generated application acceptance testing is not applicable until a real worker exists.
+The file manager supports read, create, edit, copy, rename, delete, download, folder operations, version history, restore, upload of bounded UTF-8 files, and verified text-only ZIP import/export. Imports reject unsafe paths, secrets, binary files, oversize entries, and conflicts rather than overwriting. Writes use optimistic version checks and are read back from SQLite before success is returned. The endpoints are owner-scoped under `/api/projects/:id/artifacts`; state-changing requests require same-origin JSON. Saved HTML can be previewed in a network-restricted sandbox. Persistent static checks report supported syntax and structure findings without executing project code. These capabilities are not a general-purpose IDE or isolated production build pipeline.
 
 ### UI design system
 
@@ -62,11 +63,12 @@ The browser does not call an AI service. Requirement extraction and capability m
 - `GET /api/projects/:id` — retrieve a project.
 - `POST /api/projects/:id/approve` — approve/edit each requirement.
 - `GET /api/projects/:id/blueprint` — download the project blueprint.
-- `POST /api/projects/:id/generate` — validate an approved blueprint and persist its deterministic agent task graph; no source is generated without workers.
+- `POST /api/projects/:id/generate` — validate an approved blueprint and persist its deterministic agent task graph; eligible local workers can execute assigned tasks and write prototype artifacts.
 - `GET /api/projects/:id/execution` — read the persisted, owner-scoped request/team/capability-gap/task-graph snapshot.
 - `GET /api/projects/:id/tasks` — list persisted, owner-scoped task records.
 - `GET /api/projects/:id/tasks/:taskId/events` — read a task's persisted state-transition history.
-- `POST /api/projects/:id/tasks/:taskId/run` — ask a registered worker to run a task; returns `409 BLOCKED` when no worker is registered.
+- `POST /api/projects/:id/tasks/:taskId/run` — execute a registered task handler; unavailable workers remain `BLOCKED`.
+- `POST /api/projects/:id/agents/:agentId/execute` — execute one of the 20 registered local specialists on an approved project and persist its result; provider-dependent tasks report `BLOCKED`.
 - `POST /api/projects/:id/artifacts/generate` — retired static generator (`410 BLOCKED`); use the file manager for explicit user-managed artifacts.
 - `GET /api/projects/:id/artifacts` — list owned files and folders.
 - `GET|PUT|DELETE /api/projects/:id/artifacts/file?path=...` — read, save with `expectedVersion`, download with `download=1`, or delete with the current `version`.
@@ -77,6 +79,9 @@ The browser does not call an AI service. Requirement extraction and capability m
 - `GET /api/projects/:id/artifacts/history?path=...` and `POST /api/projects/:id/artifacts/restore` — inspect history and restore a prior version as a new version.
 - `GET /api/projects/:id/artifacts/audit` — read recent artifact activity.
 - `GET /api/projects/:id/artifacts/export` — download a size-limited JSON project export.
+- `GET /api/projects/:id/artifacts/zip` and `POST /api/projects/:id/artifacts/zip-import` — export or import a verified text-only ZIP archive; import never overwrites existing paths.
+- `POST /api/projects/:id/build` and `GET /api/projects/:id/builds` — run and read bounded static syntax/structure checks; project code is not executed.
+- `GET /api/projects/:id/preview?entry=...` — preview saved HTML in a sandbox that blocks network access.
 - `GET /api/games` — list private game projects owned by the signed-in user.
 - `POST /api/games` — create a private 2D game from `{ "prompt": "..." }`.
 - `GET /api/games/:id` — retrieve the game specification and version history.
