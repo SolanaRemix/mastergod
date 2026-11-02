@@ -364,4 +364,5 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 22px
 
 @media (max-width: 420px) {
   .flash-glow-card, .glass-card, .glass-panel { backdrop-filter: none; }
+  .topbar-meta { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
