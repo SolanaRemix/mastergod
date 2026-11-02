@@ -9,6 +9,7 @@ const { createGameProject, generatePlayableHtml, refineGameSpecification } = req
 const { AuthStore, GameStore, ProjectStore } = require("./src/store");
 const { AgentOrchestrator } = require("./src/services/AgentOrchestrator.ts");
 const { ProjectGenerator } = require("./src/services/ProjectGenerator.ts");
+const { createVerifiedProjectZip } = require("./src/project-archive");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY_BYTES = 64 * 1024;
@@ -521,7 +522,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           : sendJson(response, 404, { error: "Project not found." });
       }
 
-      const artifactRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/artifacts(?:\/(generate|file|files|directories|history|audit|export|restore|rename|duplicate))?$/);
+      const artifactRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/artifacts(?:\/(generate|file|files|directories|history|audit|export|zip|restore|rename|duplicate))?$/);
       if (artifactRoute) {
         const projectId = artifactRoute[1];
         const action = artifactRoute[2];
@@ -673,6 +674,25 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
             "x-content-type-options": "nosniff"
           });
           return response.end(JSON.stringify({ projectId, files, directories: tree.directories }));
+        }
+        if (request.method === "GET" && action === "zip") {
+          const tree = await store.listArtifacts(projectId, ownerId);
+          if (!tree) return sendJson(response, 404, { error: "Project not found." });
+          const files = [];
+          for (const entry of tree.files) {
+            const artifact = await store.readArtifact(projectId, ownerId, entry.path);
+            if (!artifact) return sendJson(response, 409, { error: "Project changed while preparing the ZIP; retry the export." });
+            files.push({ path: artifact.path, contents: artifact.contents });
+          }
+          const archive = await createVerifiedProjectZip(files);
+          response.writeHead(200, {
+            "content-type": "application/zip",
+            "content-disposition": `attachment; filename="gods-project-${projectId}.zip"`,
+            "content-length": archive.length,
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff"
+          });
+          return response.end(archive);
         }
         return sendJson(response, 405, { error: "File operation is not supported." });
       }

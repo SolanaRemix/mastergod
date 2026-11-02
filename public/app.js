@@ -419,7 +419,11 @@ async function renderArtifactManager(project, container, selectedPath) {
     exportLink.className = "secondary-button";
     exportLink.href = `/api/projects/${encodeURIComponent(project.id)}/artifacts/export`;
     exportLink.textContent = "Export project JSON";
-    toolbar.append(createFile, createFolder, exportLink);
+    const zipLink = document.createElement("a");
+    zipLink.className = "secondary-button";
+    zipLink.href = `/api/projects/${encodeURIComponent(project.id)}/artifacts/zip`;
+    zipLink.textContent = "Download verified project ZIP";
+    toolbar.append(createFile, createFolder, exportLink, zipLink);
 
     const columns = document.createElement("div");
     columns.className = "artifact-columns";
