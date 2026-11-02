@@ -29,7 +29,16 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .brand strong { color: #8edfff; }
 .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid rgba(103, 232, 249, .5); border-radius: 11px; color: var(--cyan); background: rgba(103, 232, 249, .09); font-weight: 800; font-size: 18px; }
 .topbar-meta { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
+.topbar-actions { display: flex; align-items: center; gap: 14px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 12px #fbbf2470; }
+.secondary-button { padding: 8px 12px; color: #d6e3f8; border: 1px solid var(--line); border-radius: 9px; background: rgba(148, 163, 184, .07); font-size: 11px; cursor: pointer; }
+.auth-forms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.auth-form { display: flex; flex-direction: column; gap: 10px; padding: 18px; border: 1px solid var(--line); border-radius: 13px; background: rgba(5, 9, 18, .35); }
+.auth-form h3 { margin: 0 0 4px; font-size: 15px; }
+.auth-form label { color: #c1cce0; font-size: 12px; }
+.auth-form input { width: 100%; min-height: 42px; padding: 10px 12px; color: #eef2ff; border: 1px solid rgba(148, 163, 184, .23); border-radius: 9px; background: rgba(6, 10, 20, .64); }
+.auth-form .helper-text { line-height: 1.5; }
+.auth-form .primary-button { margin-top: 5px; }
 main { width: min(940px, calc(100% - 40px)); margin: 0 auto; }
 .hero { padding: clamp(56px, 10vw, 104px) 0 42px; text-align: center; }
 .eyebrow { margin: 0 0 13px; color: #80dff1; font-size: 11px; font-weight: 700; letter-spacing: .2em; }
@@ -89,6 +98,8 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 22px
   .form-footer { gap: 13px; }
   .primary-button { width: 100%; }
   .section-title { align-items: flex-start; flex-direction: column; }
+  .auth-forms { grid-template-columns: 1fr; }
+  .topbar-actions { gap: 8px; }
   footer { text-align: center; }
 }
 

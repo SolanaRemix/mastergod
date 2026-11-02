@@ -9,6 +9,11 @@ const projectCount = document.querySelector("#project-count");
 const errorMessage = document.querySelector("#error-message");
 const liveRegion = document.querySelector("#live-region");
 const healthLabel = document.querySelector("#health-label");
+const authSection = document.querySelector("#auth-section");
+const appWorkspace = document.querySelector("#app-workspace");
+const loginForm = document.querySelector("#login-form");
+const registerForm = document.querySelector("#register-form");
+const signoutButton = document.querySelector("#signout-button");
 
 let draftProject = null;
 
@@ -150,6 +155,62 @@ async function loadProjects() {
   projects.forEach(renderProject);
 }
 
+function showWorkspace(user) {
+  authSection.classList.add("hidden");
+  appWorkspace.classList.remove("hidden");
+  signoutButton.classList.remove("hidden");
+  healthLabel.textContent = `Signed in · ${user.email}`;
+  clearError();
+  loadProjects().catch((error) => showError(error.message));
+}
+
+async function submitCredentials(event, endpoint) {
+  event.preventDefault();
+  clearError();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  const data = new FormData(form);
+  button.disabled = true;
+  try {
+    const result = await api(endpoint, {
+      method: "POST",
+      body: JSON.stringify({
+        email: data.get("email"),
+        password: data.get("password")
+      })
+    });
+    form.reset();
+    showWorkspace(result.user);
+    liveRegion.textContent = `Signed in as ${result.user.email}.`;
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+loginForm.addEventListener("submit", (event) => submitCredentials(event, "/api/auth/login"));
+registerForm.addEventListener("submit", (event) => submitCredentials(event, "/api/auth/register"));
+
+signoutButton.addEventListener("click", async () => {
+  signoutButton.disabled = true;
+  try {
+    await api("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
+    draftProject = null;
+    appWorkspace.classList.add("hidden");
+    authSection.classList.remove("hidden");
+    signoutButton.classList.add("hidden");
+    projectsList.replaceChildren();
+    projectCount.textContent = "0 projects";
+    healthLabel.textContent = "Local workspace · Sign in required";
+    liveRegion.textContent = "You have signed out.";
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    signoutButton.disabled = false;
+  }
+});
+
 promptForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearError();
@@ -201,7 +262,13 @@ async function initialize() {
   try {
     const health = await api("/api/health");
     healthLabel.textContent = `Local workspace · AI providers ${health.aiProviders.toLowerCase()}`;
-    await loadProjects();
+    try {
+      const { user } = await api("/api/auth/me");
+      showWorkspace(user);
+    } catch (error) {
+      if (!error.message.includes("Sign in")) throw error;
+      healthLabel.textContent = "Local workspace · Sign in required";
+    }
   } catch (error) {
     healthLabel.textContent = "Workspace unavailable";
     showError(error.message);

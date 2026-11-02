@@ -29,20 +29,21 @@
     },
     {
       "id": "REQ-IDENTITY-001",
-      "description": "Users authenticate and receive server-enforced roles and permissions.",
-      "status": "MISSING"
+      "description": "Users authenticate and receive server-enforced project ownership; administrator provisioning remains pending.",
+      "status": "PARTIALLY_IMPLEMENTED"
     }
   ],
   "runtime": {
     "language": "JavaScript",
     "minimumNodeVersion": "20",
     "dependencies": [],
-    "persistence": "Local JSON project records and per-project YAML-subset blueprints"
+    "persistence": "Local JSON user, session, and project records with per-project YAML-subset blueprints"
   },
   "release": {
     "productionReady": false,
     "blockers": [
-      "No authentication or multi-user access control",
+      "No transactional database, email verification, password recovery, or administrator provisioning",
+      "Authentication rate limiting is process-local and not shared across instances",
       "No configured AI provider or code-generation workers",
       "No database, external integrations, or deployment adapter"
     ]

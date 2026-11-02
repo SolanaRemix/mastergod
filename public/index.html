@@ -15,7 +15,10 @@
         <span class="brand-mark" aria-hidden="true">G</span>
         <span>MASTER <strong>GODS</strong></span>
       </a>
-      <div class="topbar-meta"><span class="status-dot"></span><span id="health-label">Checking local workspace…</span></div>
+      <div class="topbar-actions">
+        <div class="topbar-meta"><span class="status-dot"></span><span id="health-label">Checking local workspace…</span></div>
+        <button id="signout-button" class="secondary-button hidden" type="button">Sign out</button>
+      </div>
     </header>
 
     <main>
@@ -25,6 +28,36 @@
         <p class="hero-copy">Describe it in your own words. GODS will organize your ideas into a plan you can review before any build work begins.</p>
       </section>
 
+      <section id="auth-section" class="glass-panel" aria-labelledby="auth-heading">
+        <div class="step-heading">
+          <span class="step-number">🔒</span>
+          <div>
+            <h2 id="auth-heading">Sign in to your private workspace</h2>
+            <p>Create an account or sign in. Your project plans are only visible to your account.</p>
+          </div>
+        </div>
+        <div class="auth-forms">
+          <form id="login-form" class="auth-form">
+            <h3>Welcome back</h3>
+            <label for="login-email">Email address</label>
+            <input id="login-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+            <label for="login-password">Password</label>
+            <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
+            <button class="primary-button" type="submit">Sign in</button>
+          </form>
+          <form id="register-form" class="auth-form">
+            <h3>New to GODS?</h3>
+            <label for="register-email">Email address</label>
+            <input id="register-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+            <label for="register-password">Create a password</label>
+            <input id="register-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+            <p class="helper-text">Use at least 12 characters. Password recovery and email verification are not available yet.</p>
+            <button class="primary-button" type="submit">Create account</button>
+          </form>
+        </div>
+      </section>
+
+      <div id="app-workspace" class="hidden">
       <section class="builder glass-panel" aria-labelledby="describe-heading">
         <div class="step-heading">
           <span class="step-number">01</span>
@@ -71,6 +104,7 @@
           <p class="empty-state">Your project plans will appear here.</p>
         </div>
       </section>
+      </div>
 
       <div id="live-region" class="sr-only" aria-live="polite"></div>
       <p id="error-message" class="error-message hidden" role="alert"></p>

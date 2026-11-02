@@ -3,7 +3,8 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { approveRequirements, createDraft, serializeBlueprint } = require("./src/blueprint");
 const { agents } = require("./src/agents");
-const { ProjectStore } = require("./src/store");
+const { AuthService } = require("./src/auth");
+const { AuthStore, ProjectStore } = require("./src/store");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY_BYTES = 64 * 1024;
@@ -13,13 +14,68 @@ const MIME_TYPES = {
   ".js": "text/javascript; charset=utf-8"
 };
 
-function sendJson(response, status, value) {
+function sendJson(response, status, value, headers = {}) {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
-    "x-content-type-options": "nosniff"
+    "x-content-type-options": "nosniff",
+    ...headers
   });
   response.end(JSON.stringify(value));
+}
+
+function getCookie(request, name) {
+  const cookies = request.headers.cookie || "";
+  for (const cookie of cookies.split(";")) {
+    const separator = cookie.indexOf("=");
+    if (separator < 0 || cookie.slice(0, separator).trim() !== name) continue;
+    return cookie.slice(separator + 1).trim();
+  }
+  return null;
+}
+
+function isSameOrigin(request) {
+  const origin = request.headers.origin;
+  if (!origin) return true;
+  try {
+    const parsedOrigin = new URL(origin);
+    return ["http:", "https:"].includes(parsedOrigin.protocol)
+      && parsedOrigin.host === request.headers.host
+      && !parsedOrigin.username
+      && !parsedOrigin.password;
+  } catch {
+    return false;
+  }
+}
+
+function makeSessionCookie(token, secure) {
+  const name = secure ? "__Host-gods_session" : "gods_session";
+  return `${name}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200${secure ? "; Secure" : ""}`;
+}
+
+function makeClearSessionCookie(secure) {
+  const name = secure ? "__Host-gods_session" : "gods_session";
+  return `${name}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure ? "; Secure" : ""}`;
+}
+
+function createRateLimiter({ limit, windowMs }) {
+  const attempts = new Map();
+  return (key) => {
+    const now = Date.now();
+    if (attempts.size > 10000) {
+      for (const [candidate, entry] of attempts) {
+        if (entry.resetAt <= now) attempts.delete(candidate);
+      }
+    }
+    const current = attempts.get(key);
+    if (!current || current.resetAt <= now) {
+      attempts.set(key, { count: 1, resetAt: now + windowMs });
+      return true;
+    }
+    if (current.count >= limit) return false;
+    current.count += 1;
+    return true;
+  };
 }
 
 async function readJson(request) {
@@ -73,6 +129,12 @@ async function serveStatic(response, pathname) {
 
 function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirname, "data") } = {}) {
   const store = new ProjectStore(dataDir);
+  const authStore = new AuthStore(dataDir);
+  const auth = new AuthService(authStore);
+  const secureCookies = process.env.NODE_ENV === "production";
+  const sessionCookieName = secureCookies ? "__Host-gods_session" : "gods_session";
+  const allowRegistration = createRateLimiter({ limit: 10, windowMs: 60 * 60 * 1000 });
+  const allowLogin = createRateLimiter({ limit: 20, windowMs: 15 * 60 * 1000 });
 
   const server = http.createServer(async (request, response) => {
     try {
@@ -88,10 +150,72 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           status: "VERIFIED",
           application: "available",
           persistence: "local-file-store",
-          authentication: "MISSING",
+          authentication: "ENABLED",
           aiProviders: "BLOCKED",
-          productionReady: false
+          productionReady: false,
+          productionBlockers: [
+            "User, session, and project data use a local JSON file store, not a transactional database.",
+            "Authentication rate limits are process-local and are not shared across server instances.",
+            "Email ownership verification, password reset, and explicit administrator provisioning are not configured.",
+            "No AI provider or isolated agent execution worker is configured."
+          ]
         });
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/auth/me") {
+        const token = getCookie(request, sessionCookieName);
+        const session = await auth.getSession(token);
+        if (!session) return sendJson(response, 401, { error: "Sign in to continue." });
+        return sendJson(response, 200, { user: session.user, expiresAt: session.expiresAt });
+      }
+
+      if (request.method === "POST" && ["/api/auth/register", "/api/auth/login", "/api/auth/logout"].includes(url.pathname)) {
+        if (!isSameOrigin(request)) return sendJson(response, 403, { error: "This request must come from this site." });
+        const source = request.socket.remoteAddress || "unknown";
+        const limiter = url.pathname.endsWith("/register") ? allowRegistration : allowLogin;
+        if (url.pathname !== "/api/auth/logout" && !limiter(source)) {
+          return sendJson(response, 429, { error: "Too many attempts. Please wait before trying again." }, { "retry-after": "900" });
+        }
+
+        if (url.pathname === "/api/auth/logout") {
+          const token = getCookie(request, sessionCookieName);
+          await auth.deleteSession(token);
+          return sendJson(response, 200, { status: "signed_out" }, {
+            "set-cookie": makeClearSessionCookie(secureCookies)
+          });
+        }
+
+        const body = await readJson(request);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          return sendJson(response, 400, { error: "Provide an email address and password." });
+        }
+
+        let user;
+        if (url.pathname.endsWith("/register")) {
+          try {
+            user = await auth.register(body.email, body.password);
+          } catch (error) {
+            return sendJson(response, error.message.includes("already exists") ? 409 : 400, { error: error.message });
+          }
+        } else {
+          user = await auth.login(body.email, body.password);
+          if (!user) return sendJson(response, 401, { error: "Email or password is incorrect." });
+        }
+
+        const session = await auth.createSession(user.id);
+        return sendJson(response, url.pathname.endsWith("/register") ? 201 : 200, {
+          user,
+          expiresAt: session.expiresAt
+        }, { "set-cookie": makeSessionCookie(session.token, secureCookies) });
+      }
+
+      if (url.pathname.startsWith("/api/projects")) {
+        if (!isSameOrigin(request) && request.method !== "GET") {
+          return sendJson(response, 403, { error: "This request must come from this site." });
+        }
+        const session = await auth.getSession(getCookie(request, sessionCookieName));
+        if (!session) return sendJson(response, 401, { error: "Sign in to manage project plans." });
+        request.authenticatedUser = session.user;
       }
 
       if (request.method === "GET" && url.pathname === "/api/agents") {
@@ -99,7 +223,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
       }
 
       if (request.method === "GET" && url.pathname === "/api/projects") {
-        return sendJson(response, 200, { projects: await store.list() });
+        return sendJson(response, 200, { projects: await store.list(request.authenticatedUser.id) });
       }
 
       if (request.method === "POST" && url.pathname === "/api/projects") {
@@ -114,14 +238,18 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         ) {
           return sendJson(response, 400, { error: "Describe the application in at least 10 characters (up to 10,000)." });
         }
-        const project = await store.create(createDraft(body.prompt.trim()));
+        const project = createDraft(body.prompt.trim());
+        project.ownerId = request.authenticatedUser.id;
+        await store.create(project);
         return sendJson(response, 201, { project });
       }
 
       const projectRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})(?:\/(approve|blueprint))?$/);
       if (request.method === "GET" && projectRoute && projectRoute[2] !== "approve") {
         const project = await store.get(projectRoute[1]);
-        if (!project) return sendJson(response, 404, { error: "Project not found." });
+        if (!project || project.ownerId !== request.authenticatedUser.id) {
+          return sendJson(response, 404, { error: "Project not found." });
+        }
         if (projectRoute[2] === "blueprint") {
           response.writeHead(200, {
             "content-type": "application/yaml; charset=utf-8",
@@ -135,11 +263,13 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
 
       if (request.method === "POST" && projectRoute?.[2] === "approve") {
         const project = await store.get(projectRoute[1]);
-        if (!project) return sendJson(response, 404, { error: "Project not found." });
+        if (!project || project.ownerId !== request.authenticatedUser.id) {
+          return sendJson(response, 404, { error: "Project not found." });
+        }
         if (project.status !== "DRAFT") return sendJson(response, 409, { error: "This project plan has already been approved." });
         const body = await readJson(request);
         try {
-          approveRequirements(project, body.decisions);
+          approveRequirements(project, body && typeof body === "object" ? body.decisions : undefined);
         } catch (error) {
           return sendJson(response, 400, { error: error.message });
         }
@@ -159,12 +289,12 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
     }
   });
 
-  return { server, store };
+return { server, store, authStore };
 }
 
 if (require.main === module) {
-  const { server, store } = createServer();
-  store.initialize()
+const { server, store, authStore } = createServer();
+Promise.all([store.initialize(), authStore.initialize()])
     .then(() => server.listen(Number(process.env.PORT) || 3000, process.env.HOST || "127.0.0.1", () => {
       console.log(`Master GODS is available at http://${server.address().address}:${server.address().port}`);
     }))
