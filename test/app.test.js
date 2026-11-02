@@ -7,6 +7,7 @@ const path = require("node:path");
 const { after, before, test } = require("node:test");
 const { approveRequirements, buildTaskGraph, createDraft, discoverRequirements } = require("../src/blueprint");
 const { agents } = require("../src/agents");
+const { AgentCapabilityRegistry } = require("../src/capability-registry");
 const { AgentOrchestrator } = require("../src/services/AgentOrchestrator.ts");
 const { createServer } = require("../server");
 
@@ -103,8 +104,29 @@ test("agent catalog declares complete contracts without overstating provider exe
     assert.ok(agent.inputContract.projectId);
     assert.ok(agent.outputContract.status);
     assert.ok(agent.securityConstraints.length > 0);
+    assert.ok(agent.capabilities.length > 0);
+    assert.equal(agent.availability, "catalog-only");
+    assert.equal(agent.deploymentStatus, "not-deployed");
   }
   assert.equal(agents.find((agent) => agent.id === "frontend-engineer").execution, "provider");
+});
+
+test("capability registry discovers request-specific and registered specialist capabilities", () => {
+  const registry = new AgentCapabilityRegistry(agents);
+  const specialist = {
+    ...agents.find((agent) => agent.id === "integration"),
+    id: "solana-swap-specialist",
+    name: "Solana Swap Specialist",
+    capabilities: ["solana-swap"],
+    keywords: ["Solana swap"],
+    version: "1.0.0"
+  };
+  registry.register(specialist);
+  const plan = registry.discover([{ id: "REQ-1", text: "Build a Solana swap wallet." }], "web3");
+  assert.ok(plan.assignments.some((assignment) => assignment.agentId === specialist.id));
+  assert.ok(plan.capabilityGaps.some((gap) => gap.capability === "blockchain-integration"));
+  assert.ok(plan.capabilityGaps.some((gap) => gap.capability === "solana-swap"));
+  assert.throws(() => registry.register(specialist), { code: "AGENT_ALREADY_REGISTERED" });
 });
 
 test("health reports the initialized SQLite persistence adapter", async () => {
@@ -478,6 +500,7 @@ test("blueprint generation persists an agent graph and artifact files remain own
 
   const truckingProject = await createApprovedProject("Build a trucking tool for drivers, vehicles, and invoices.");
   const bookingsProject = await createApprovedProject("Build a calendar booking app for customer appointments.");
+  const workflowProject = await createApprovedProject("Automate customer registration, CRM creation, and welcome emails.");
   const unapprovedProject = (await (async () => {
     const response = await fetch(`${baseUrl}/api/projects`, {
       method: "POST",
@@ -504,6 +527,17 @@ test("blueprint generation persists an agent graph and artifact files remain own
   assert.match(generated.body.executionNote, /no verified agent workers are registered/i);
   assert.ok(generated.body.tasks.some((task) => /Fleet, driver, and load workflows/.test(task.title)));
   assert.ok(generated.body.tasks.every((task) => task.status === "BLOCKED"));
+  assert.ok(generated.body.selectedAgents.some((agent) => agent.capability === "authentication-design"));
+  assert.ok(generated.body.capabilityGaps.some((gap) => gap.capability === "backend-development"));
+  assert.equal(generated.body.execution.status, "blocked");
+  assert.equal(generated.body.execution.taskGraph.length, generated.body.taskCount);
+  const persistedExecution = await json(`/api/projects/${truckingProject.id}/execution`);
+  assert.equal(persistedExecution.response.status, 200);
+  assert.equal(persistedExecution.body.execution.originalPrompt, truckingProject.originalRequest);
+  assert.equal(persistedExecution.body.execution.requestId, generated.body.generationId);
+  assert.equal((await fetch(`${baseUrl}/api/projects/${truckingProject.id}/execution`, {
+    headers: { cookie: other.cookie }
+  })).status, 404);
   const repeated = await json(`/api/projects/${truckingProject.id}/generate`, {
     method: "POST",
     body: JSON.stringify({})
@@ -517,6 +551,13 @@ test("blueprint generation persists an agent graph and artifact files remain own
   });
   assert.equal(alternate.body.projectType, "booking");
   assert.ok(alternate.body.tasks.some((task) => /Booking and scheduling workflows/.test(task.title)));
+  assert.ok(alternate.body.selectedAgents.some((agent) => agent.capability === "external-integrations"));
+  const workflow = await json(`/api/projects/${workflowProject.id}/generate`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  assert.ok(workflow.body.selectedAgents.some((agent) => agent.capability === "workflow-automation"));
+  assert.ok(workflow.body.tasks.some((task) => task.input.capability === "workflow-automation"));
   const noWorker = await json(`/api/projects/${truckingProject.id}/tasks/${encodeURIComponent(generated.body.tasks[0].taskId)}/run`, {
     method: "POST",
     body: JSON.stringify({})

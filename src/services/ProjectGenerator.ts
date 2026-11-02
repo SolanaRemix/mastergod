@@ -152,7 +152,7 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
     capability: "external-integrations",
     dependencies: ["domain"]
   });
-  if (/\b(automations?|workflows?|triggers?|schedulers?)\b/i.test(requestText)) {
+  if (/\b(automations?|automate|workflows?|triggers?|schedulers?)\b/i.test(requestText)) {
     tasks.push({
       key: "workflow",
       title: "Workflow triggers, actions, and recovery design",

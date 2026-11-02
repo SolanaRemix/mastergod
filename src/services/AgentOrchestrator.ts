@@ -133,7 +133,16 @@ class AgentOrchestrator {
         updatedAt: now
       };
     });
-    return this.store.createAgentTasks(projectId, ownerId, prepared, execution);
+    const executionSnapshot = execution
+      ? {
+          ...execution,
+          status: Array.isArray(execution.capabilityGaps) && execution.capabilityGaps.length > 0
+            || !prepared.some((task) => task.status === "QUEUED")
+            ? "blocked"
+            : "executing"
+        }
+      : undefined;
+    return this.store.createAgentTasks(projectId, ownerId, prepared, executionSnapshot);
   }
 
   listTasks(projectId: string, ownerId: string): Promise<AgentTask[] | null> {

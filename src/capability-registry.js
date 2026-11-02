@@ -1,7 +1,7 @@
 const CAPABILITY_RULES = [
   { capability: "authentication-design", pattern: /\b(users?|drivers?|accounts?|login|sign.?in|permissions?|roles?)\b/i },
   { capability: "model-routing", pattern: /\b(models?|providers?|LLMs?|AI|artificial intelligence|RAG|agents?)\b/i },
-  { capability: "workflow-automation", pattern: /\b(automations?|workflows?|triggers?|schedulers?)\b/i },
+  { capability: "workflow-automation", pattern: /\b(automations?|automate|workflows?|triggers?|schedulers?)\b/i },
   { capability: "external-integrations", pattern: /\b(integrat|external service|API|calendar|payment|email|CRM)\b/i },
   { capability: "asset-requirements", pattern: /\b(images?|illustrations?|audio|music|sprites?|assets?)\b/i },
   { capability: "game-engineering", pattern: /\b(games?|gameplay|3D|racing|physics|levels?)\b/i },

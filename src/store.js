@@ -1650,7 +1650,8 @@ class ProjectStore {
   deleteArtifactDirectory(id, ownerId, directoryPath) {
     return this.persistence.deleteProjectDirectory(id, ownerId, directoryPath);
   }
-  createAgentTasks(id, ownerId, tasks) { return this.persistence.createAgentTasks(id, ownerId, tasks); }
+  createAgentTasks(id, ownerId, tasks, execution) { return this.persistence.createAgentTasks(id, ownerId, tasks, execution); }
+  getAgenticExecution(id, ownerId) { return this.persistence.getAgenticExecution(id, ownerId); }
   listAgentTasks(id, ownerId) { return this.persistence.listAgentTasks(id, ownerId); }
   getAgentTask(id, ownerId, taskId) { return this.persistence.getAgentTask(id, ownerId, taskId); }
   transitionAgentTask(id, ownerId, taskId, expected, next, update, details) {

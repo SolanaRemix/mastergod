@@ -214,6 +214,24 @@ function renderProject(project) {
     const executionDescription = document.createElement("p");
     executionDescription.className = "helper-text";
     executionDescription.textContent = "Create traceable tasks from this approved blueprint. Tasks remain blocked until a real worker is configured.";
+    const executionSummary = document.createElement("div");
+    executionSummary.className = "helper-text";
+    function renderExecutionSummary(execution) {
+      executionSummary.replaceChildren();
+      if (!execution) return;
+      const team = document.createElement("p");
+      const selectedNames = [...new Set((execution.selectedAgents || []).map((agent) => agent.agentName))];
+      team.textContent = selectedNames.length
+        ? `Planned team (catalog definitions, not running workers): ${selectedNames.join(", ")}.`
+        : "No matching agent definitions are available.";
+      executionSummary.append(team);
+      if (execution.capabilityGaps?.length) {
+        const gaps = document.createElement("p");
+        const unavailable = [...new Set(execution.capabilityGaps.map((gap) => gap.capability))];
+        gaps.textContent = `Execution is blocked. Unavailable capabilities or workers: ${unavailable.join(", ")}.`;
+        executionSummary.append(gaps);
+      }
+    }
     const createGraph = addButton("Create blueprint task graph", "primary-button");
     const executionTasks = document.createElement("div");
     executionTasks.className = "agent-task-list";
@@ -225,6 +243,7 @@ function renderProject(project) {
           body: JSON.stringify({})
         });
         executionDescription.textContent = result.executionNote;
+        renderExecutionSummary(result.execution);
         createGraph.classList.add("hidden");
         renderAgentTasks(project, executionTasks, result.tasks);
       } catch (error) {
@@ -233,7 +252,7 @@ function renderProject(project) {
         createGraph.disabled = false;
       }
     });
-    executionSection.append(executionHeading, executionDescription, createGraph, executionTasks);
+    executionSection.append(executionHeading, executionDescription, executionSummary, createGraph, executionTasks);
     card.append(executionSection);
     api(`/api/projects/${encodeURIComponent(project.id)}/tasks`)
       .then(({ tasks }) => {
@@ -243,6 +262,9 @@ function renderProject(project) {
             ? "Tasks are queued for registered workers; outcomes will be recorded with evidence."
             : "The graph is persisted; tasks are blocked because no verified worker is registered.";
           renderAgentTasks(project, executionTasks, tasks);
+          api(`/api/projects/${encodeURIComponent(project.id)}/execution`)
+            .then(({ execution }) => renderExecutionSummary(execution))
+            .catch(() => {});
         }
       })
       .catch(() => {});

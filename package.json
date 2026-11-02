@@ -1,8 +1,8 @@
 {
   "name": "master-gods",
-  "version": "10.3.0",
+  "version": "11.0.0",
   "private": true,
-  "description": "A beginner-first project planner with persisted blueprints and honest agent task tracking.",
+  "description": "A beginner-first agentic project planner with request-derived teams and evidence-aware execution records.",
   "scripts": {
     "start": "node --experimental-strip-types server.js",
     "provision-admin": "node scripts/provision-admin.js",

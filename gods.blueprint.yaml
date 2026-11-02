@@ -3,8 +3,8 @@
   "project": {
     "id": "master-gods",
     "name": "Master GODS",
-    "version": "10.3.0",
-    "purpose": "Help users describe an application, review its requirements, and retain an evidence-aware project blueprint."
+    "version": "11.0.0",
+    "purpose": "Help users describe an application, review its requirements, assemble a request-derived agent team, and retain an evidence-aware execution record."
   },
   "requirements": [
     {
@@ -19,7 +19,22 @@
     },
     {
       "id": "REQ-ORCHESTRATION-001",
-      "description": "Project task contracts and dependency-aware task states are retained for review.",
+      "description": "Approved project requirements are mapped to a request-specific capability plan and dependency-aware, owner-scoped task graph; unconfigured workers remain blocked.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-AGENT-REGISTRY-001",
+      "description": "A validated capability registry describes agent skills, domains, tools, provider requirements, permissions, availability, and deployment state; request-specific teams include explicit capability gaps.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-EXECUTION-TRACE-001",
+      "description": "The original request, approved requirements, blueprint version, selected agents, capability gaps, task graph, approvals, and honest status are persisted and owner-scoped for read-back.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-CUSTOM-AGENTS-001",
+      "description": "Custom agent definitions can be registered in the in-memory capability registry for planning, but persistent agent authoring, validation, tests, permissions, deployment, and independent execution are not implemented.",
       "status": "PARTIALLY_IMPLEMENTED"
     },
     {
@@ -77,7 +92,13 @@
     "language": "JavaScript with Node-native type-stripped TypeScript services",
     "minimumNodeVersion": "22.13.0",
     "dependencies": [],
-    "persistence": "SQLite users, sessions, project records, project artifact files, versions and audit entries, private game projects, game versions, and validated game saves"
+    "persistence": "SQLite users, sessions, project records, agentic execution snapshots, agent task graphs and events, project artifact files and versions, private game projects, game versions, and validated game saves"
+  },
+  "agenticCore": {
+    "capabilityRegistry": "Validated in-process descriptors; registry entries are catalog-only unless an executable worker is registered.",
+    "teamAssembly": "Approved request requirements select matching capabilities; missing, undeployed, and unavailable capabilities are reported as BLOCKED.",
+    "executionRecord": "Owner-scoped SQLite snapshot, read-back verified with its task graph; provider/model assignments and generated artifacts remain empty until configured.",
+    "customAgentLifecycle": "Not deployed. In-memory specialist registration only supports planning; no privileged tools are granted."
   },
   "gameStudio": {
     "status": "IMPLEMENTED_UNVERIFIED",
@@ -106,6 +127,9 @@
       "No configured email delivery for password recovery",
       "Authentication rate limiting is process-local and not shared across instances",
       "No configured AI provider or code-generation workers; blueprint task graphs are persisted but no generated project source can be produced",
+      "Capability planning and execution snapshots do not provide executable specialist agents, provider routing, model evaluation, persistent custom-agent authoring, or autonomous agent creation",
+      "Web3 wallet, swap, transaction simulation, signing, broadcast, confirmation, and read-back integrations are not configured",
+      "Workflow definitions, execution workers, connectors, visual editing, and deployment lifecycle are not implemented",
       "Automated browser visual, keyboard/screen-reader, and generated-project acceptance testing is not configured",
       "Game Studio is limited to a deterministic 2D template; broad engines, media, services, and agents are not configured",
       "No production host, deployment credentials, protected-environment approval, or production-ready health response is configured",
