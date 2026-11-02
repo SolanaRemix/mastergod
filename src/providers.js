@@ -256,17 +256,18 @@ class OpenAICompatibleAdapter {
     this.allowLocal = allowLocal;
     this.sleep = sleep || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.usage = { calls: 0, promptTokens: 0, completionTokens: 0 };
+    this.responseSignals = new WeakMap();
   }
 
   async request(endpoint, pathname, apiKey, options = {}) {
     const base = await validateProviderEndpoint(endpoint, { allowLocal: this.allowLocal, lookup: this.lookup });
     const url = new URL(pathname.replace(/^\//, ""), `${base.href.replace(/\/+$/, "")}/`);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 15_000);
-    const signals = [controller.signal];
+    const timeoutSignal = AbortSignal.timeout(options.timeoutMs || 15_000);
+    const signals = [timeoutSignal];
     if (options.signal) signals.push(options.signal);
+    const signal = AbortSignal.any(signals);
     try {
-      return await this.fetchImpl(url, {
+      const response = await this.fetchImpl(url, {
         method: options.method || "GET",
         headers: {
           accept: "application/json",
@@ -275,21 +276,46 @@ class OpenAICompatibleAdapter {
         },
         ...(options.body ? { body: JSON.stringify(options.body) } : {}),
         redirect: "error",
-        signal: AbortSignal.any(signals)
+        signal
       });
+      this.responseSignals.set(response, { signal, callerSignal: options.signal });
+      return response;
     } catch (error) {
       if (options.signal?.aborted) throw Object.assign(new ProviderError("PROVIDER_TIMEOUT", "Provider request was cancelled."), { retryable: false });
-      if (controller.signal.aborted) throw new ProviderError("PROVIDER_TIMEOUT", "Provider request timed out.", { retryable: true });
+      if (timeoutSignal.aborted) throw new ProviderError("PROVIDER_TIMEOUT", "Provider request timed out.", { retryable: true });
       throw new ProviderError("PROVIDER_NETWORK_ERROR", "Provider network request failed.", { retryable: true });
-    } finally {
-      clearTimeout(timeout);
     }
+  }
+
+  async readResponse(response) {
+    try {
+      return await readJsonResponse(response);
+    } catch (error) {
+      const signals = this.responseSignals.get(response);
+      if (signals?.callerSignal?.aborted) {
+        throw Object.assign(new ProviderError("PROVIDER_TIMEOUT", "Provider request was cancelled."), { retryable: false });
+      }
+      if (signals?.signal.aborted) {
+        throw new ProviderError("PROVIDER_TIMEOUT", "Provider request timed out.", { retryable: true });
+      }
+      throw error;
+    } finally {
+      this.responseSignals.delete(response);
+    }
+  }
+
+  discardResponse(response) {
+    this.responseSignals.delete(response);
+    response.body?.cancel().catch(() => {});
   }
 
   async listModels(configuration) {
     const response = await this.request(configuration.endpoint, "models", configuration.apiKey);
-    if (!response.ok) throw this.httpError(response.status);
-    const json = await readJsonResponse(response);
+    if (!response.ok) {
+      this.discardResponse(response);
+      throw this.httpError(response.status);
+    }
+    const json = await this.readResponse(response);
     if (!Array.isArray(json?.data) || json.data.some((model) => !model || typeof model.id !== "string")) {
       throw new ProviderError("PROVIDER_INVALID_RESPONSE", "Provider model list has an unsupported shape.");
     }
@@ -344,10 +370,11 @@ class OpenAICompatibleAdapter {
       }
       if (response.ok) break;
       const error = this.httpError(response.status);
+      this.discardResponse(response);
       if (!error.retryable || attempt === MAX_RETRIES - 1) throw error;
       await this.sleep(retryDelay(response, attempt));
     }
-    const result = await readJsonResponse(response);
+    const result = await this.readResponse(response);
     const choice = result?.choices?.[0]?.message;
     if (!choice || typeof choice.content !== "string") {
       throw new ProviderError("PROVIDER_INVALID_RESPONSE", "Provider completion response has an unsupported shape.");
