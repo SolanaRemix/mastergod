@@ -1,5 +1,12 @@
 # Changelog
 
+## 13.0.0
+
+- Begin the V13 upgrade on the existing V12 Node.js/SQLite application; this release remains partially implemented and is not production-ready.
+- Replace the artifact Markdown preview's heading/list-only substitutions with a safe structured renderer for headings, lists/checklists, tables, blockquotes, links, images, and fenced code.
+- Add renderer tests for document structure, raw HTML escaping, unsafe URL rejection, and external link protections.
+- Add the V13-specific acceptance gates and keep unconfigured model routing, failover, durable background execution, and GitHub synchronization explicitly blocked or missing.
+
 ## 12.0.0
 
 - Consolidate release identity and blueprint metadata at V12.0.0.

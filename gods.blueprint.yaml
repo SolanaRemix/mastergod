@@ -1,10 +1,10 @@
 {
-  "blueprintVersion": "12.0.0",
+  "blueprintVersion": "13.0.0",
   "project": {
     "id": "master-gods",
     "name": "Master GODS",
-    "version": "12.0.0",
-    "purpose": "A unified AI Studio foundation for beginner-first application planning, request-derived agent capability teams, persistent execution records, artifact management, and evidence-aware status reporting."
+    "version": "13.0.0",
+    "purpose": "A V13-in-progress local-first AI Studio with owner-scoped project planning, deterministic local specialists, artifact editing, safe Markdown preview, ZIP exchange, and evidence-aware release gates."
   },
   "requirements": [
     {
@@ -101,6 +101,26 @@
       "id": "REQ-PRODUCTION-DEPLOY-001",
       "description": "Deploy verified artifacts to a configured production host and confirm production readiness from a post-deploy health read.",
       "status": "BLOCKED"
+    },
+    {
+      "id": "REQ-V13-MARKDOWN-001",
+      "description": "Render common Markdown blocks in project documents while escaping raw HTML and rejecting unsafe link and image protocols.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-V13-GITHUB-SYNC-001",
+      "description": "Authenticate a GitHub account and safely synchronize project files in both directions with conflict review.",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "REQ-V13-FAILOVER-001",
+      "description": "Select and fail over among configured provider models with recorded provenance and bounded retries.",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "REQ-V13-BACKGROUND-001",
+      "description": "Run durable project builds in a background queue with recovery after process interruption.",
+      "status": "MISSING"
     }
   ],
   "runtime": {
@@ -194,7 +214,24 @@
       { "id": 14, "name": "Workflow and asset factories", "status": "BLOCKED" },
       { "id": 15, "name": "Web3 safety and integrations", "status": "BLOCKED" },
       { "id": 16, "name": "End-to-end, security, performance, and accessibility", "status": "PARTIALLY_IMPLEMENTED" },
-      { "id": 17, "name": "Deployment and production read-back", "status": "BLOCKED" }
+      { "id": 17, "name": "Deployment and production read-back", "status": "BLOCKED" },
+      { "id": 18, "name": "Structured response and Markdown renderer", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 19, "name": "Complete project explorer and file operations", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 20, "name": "Editable code and Markdown workspace", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 21, "name": "Artifact registry and verified ZIP exchange", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 22, "name": "Current-project application preview", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 23, "name": "Playable game preview", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 24, "name": "Responsive device viewport controls", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 25, "name": "Twenty executable local specialist agents", "status": "VERIFIED" },
+      { "id": 26, "name": "Provider and agent failover", "status": "BLOCKED" },
+      { "id": 27, "name": "Persistent background execution and recovery", "status": "MISSING" },
+      { "id": 28, "name": "GitHub OAuth and account connection", "status": "BLOCKED" },
+      { "id": 29, "name": "Authorized repository import", "status": "BLOCKED" },
+      { "id": 30, "name": "GODS-to-GitHub synchronization", "status": "BLOCKED" },
+      { "id": 31, "name": "GitHub-to-GODS synchronization", "status": "BLOCKED" },
+      { "id": 32, "name": "Protected conflict detection and resolution", "status": "BLOCKED" },
+      { "id": 33, "name": "Security, isolation, and secret protection", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 34, "name": "Complete-project read-back and delivery report", "status": "PARTIALLY_IMPLEMENTED" }
     ],
     "blockers": [
       "Automated email verification and delivery-based password recovery are not configured",
@@ -212,7 +249,10 @@
       "Automated browser visual, keyboard/screen-reader, and generated-project acceptance testing is not configured",
       "Game Studio is limited to a deterministic 2D template; broad engines, media, services, and agents are not configured",
       "No production host, deployment credentials, protected-environment approval, or production-ready health response is configured",
-      "No published game destination or external integration is verified"
+      "No published game destination or external integration is verified",
+      "No GitHub OAuth client, encrypted token storage, repository adapter, or user-authorized repository access is configured",
+      "No provider credentials or model adapters are configured; failover to another provider would risk unauthorized data transmission",
+      "The Markdown renderer does not provide syntax highlighting, math, Mermaid execution, structured AI chat responses, or code-block action workflows"
     ]
   }
 }

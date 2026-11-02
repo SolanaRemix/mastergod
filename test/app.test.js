@@ -139,18 +139,20 @@ test("capability registry discovers request-specific and registered specialist c
   assert.throws(() => registry.register(specialist), { code: "AGENT_ALREADY_REGISTERED" });
 });
 
-test("V12 blueprint version, canonical status values, and release gates are consistent", () => {
+test("V13 blueprint version, canonical status values, and release gates are consistent", () => {
   const manifest = require("../package.json");
   const blueprint = JSON.parse(require("node:fs").readFileSync(path.join(__dirname, "..", "gods.blueprint.yaml"), "utf8"));
   const knownStatuses = new Set([
     "VERIFIED", "IMPLEMENTED_UNVERIFIED", "PARTIALLY_IMPLEMENTED", "MISSING",
     "BLOCKED", "FAILED", "UNKNOWN", "NOT_APPLICABLE"
   ]);
-  assert.equal(manifest.version, "12.0.0");
+  assert.equal(manifest.version, "13.0.0");
   assert.equal(blueprint.project.version, manifest.version);
   assert.equal(blueprint.blueprintVersion, manifest.version);
   assert.equal(blueprint.release.productionReady, false);
-  assert.equal(blueprint.release.acceptanceGates.length, 17);
+  assert.equal(blueprint.release.acceptanceGates.length, 34);
+  assert.equal(blueprint.release.acceptanceGates.find((gate) => gate.id === 25).status, "VERIFIED");
+  assert.equal(blueprint.release.acceptanceGates.find((gate) => gate.id === 26).status, "BLOCKED");
   assert.ok(blueprint.requirements.every((requirement) => knownStatuses.has(requirement.status)));
   assert.ok(blueprint.release.acceptanceGates.every((gate) => knownStatuses.has(gate.status)));
 });

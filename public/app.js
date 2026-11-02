@@ -637,19 +637,7 @@ async function renderArtifactManager(project, container, selectedPath) {
       markdownPreview.className = "artifact-markdown-preview glass-card";
       markdownPreview.setAttribute("aria-label", "Markdown preview");
       const renderMarkdownPreview = () => {
-        const escaped = editor.value.replace(/[&<>"']/g, (character) => ({
-          "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
-        })[character]);
-        markdownPreview.innerHTML = escaped
-          .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-          .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-          .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-          .replace(/^\s*[-*] (.+)$/gm, "<li>$1</li>")
-          .replace(/(?:<li>.*<\/li>\n?)+/g, (items) => `<ul>${items}</ul>`)
-          .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-          .split(/\n{2,}/)
-          .map((block) => /^(?:<h[1-3]>|<ul>)/.test(block) ? block : `<p>${block.replace(/\n/g, "<br>")}</p>`)
-          .join("");
+        markdownPreview.innerHTML = window.GodsMarkdown.render(editor.value);
       };
       const isMarkdown = artifact.path.toLowerCase().endsWith(".md")
         || artifact.language === "markdown" || artifact.language === "md";

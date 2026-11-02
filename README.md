@@ -1,4 +1,4 @@
-# Master GODS V12.0.0
+# Master GODS V13.0.0
 
 A dependency-free, local-first AI Studio foundation with authenticated ownership, SQLite persistence, request-derived capability plans and execution snapshots, a deterministic 2D game template, and an evidence-aware artifact file manager. Provider-backed agent execution and the full production software factory are not configured.
 
@@ -46,6 +46,7 @@ The browser does not call an AI service. Requirement extraction and capability m
 - [API reference](docs/API_REFERENCE.md), [agent system](docs/AGENT_SYSTEM.md), and [provider boundaries](docs/PROVIDER_INTEGRATIONS.md)
 - [Security](docs/SECURITY.md), [database](docs/DATABASE.md), and [deployment](docs/DEPLOYMENT.md)
 - [Testing](docs/TESTING.md), [changelog](docs/CHANGELOG.md), and [V12 release status](docs/RELEASE_V12.md)
+- [V13 implementation and release gates](docs/RELEASE_V13.md)
 
 ## API
 

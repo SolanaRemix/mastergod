@@ -50,8 +50,8 @@ try {
     throw new Error("Blueprint and package versions must match.");
   }
   if (!Array.isArray(blueprint.requirements) || !Array.isArray(blueprint.release?.acceptanceGates)
-    || blueprint.release.acceptanceGates.length !== 17) {
-    throw new Error("The blueprint must contain requirements and all 17 V12 acceptance gates.");
+    || blueprint.release.acceptanceGates.length !== 34) {
+    throw new Error("The blueprint must contain requirements and all 34 V12/V13 acceptance gates.");
   }
   for (const requirement of blueprint.requirements) {
     if (!requirement.id || !validStatuses.has(requirement.status)) {
