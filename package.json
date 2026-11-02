@@ -1,0 +1,16 @@
+{
+  "name": "master-gods",
+  "version": "13.2.0",
+  "private": true,
+  "description": "A V13-in-progress local-first project studio with owner-scoped artifacts and evidence-aware execution records.",
+  "scripts": {
+    "start": "node --experimental-strip-types server.js",
+    "provision-admin": "node scripts/provision-admin.js",
+    "check": "node scripts/check.js",
+    "build": "node scripts/build.js",
+    "test": "node --experimental-strip-types --test"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

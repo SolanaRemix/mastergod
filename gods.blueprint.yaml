@@ -1,0 +1,275 @@
+{
+  "blueprintVersion": "13.2.0",
+  "project": {
+    "id": "master-gods",
+    "name": "Master GODS",
+    "version": "13.2.0",
+    "purpose": "A V13-in-progress local-first AI Studio with owner-scoped project planning, deterministic local specialists, artifact editing, safe Markdown preview, ZIP exchange, and evidence-aware release gates."
+  },
+  "requirements": [
+    {
+      "id": "REQ-BUILDER-001",
+      "description": "Users can describe an application in ordinary language and receive an editable requirement draft.",
+      "status": "VERIFIED"
+    },
+    {
+      "id": "REQ-BLUEPRINT-001",
+      "description": "Approved project requirements and planning artifacts are persisted with the project and downloadable in gods.blueprint.yaml format.",
+      "status": "VERIFIED"
+    },
+    {
+      "id": "REQ-ORCHESTRATION-001",
+      "description": "Approved project requirements are mapped to a request-specific capability plan and dependency-aware, owner-scoped task graph; unconfigured workers remain blocked.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-AGENT-REGISTRY-001",
+      "description": "A validated capability registry describes agent skills, domains, tools, provider requirements, permissions, availability, and deployment state; request-specific teams include explicit capability gaps.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-EXECUTION-TRACE-001",
+      "description": "The original request, approved requirements, blueprint version, selected agents, capability gaps, task graph, approvals, and honest status are persisted and owner-scoped for read-back.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-CUSTOM-AGENTS-001",
+      "description": "Custom agent descriptors can be registered in the in-memory capability registry for planning, but persistent agent authoring, validation, tests, permissions, deployment, and independent execution are not implemented.",
+      "status": "PARTIALLY_IMPLEMENTED"
+    },
+    {
+      "id": "REQ-V12-SSOT-001",
+      "description": "The versioned product blueprint records current modules, persistence, execution boundaries, release gates, and blocked integrations without claiming missing features.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-CORE-AGENTS-001",
+      "description": "Twenty versioned deterministic local specialist definitions are persisted and registered with executable task handlers; model-backed reasoning, general agent authoring, evaluation promotion, and full worker isolation remain unavailable.",
+      "status": "PARTIALLY_IMPLEMENTED"
+    },
+    {
+      "id": "REQ-PROJECT-WORKSPACE-001",
+      "description": "Owners can edit and version text artifacts, upload UTF-8 files, import/export verified ZIPs without overwriting existing files, preview saved HTML in a network-restricted sandbox, and persist syntax/structure build diagnostics.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-PROVIDERS-001",
+      "description": "Configured AI providers execute code-generation and verification tasks.",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "REQ-V13.3-INCREMENT1-PROVIDER-001",
+      "description": "Owners can securely configure an OpenAI-compatible provider and execute one schema-validated Product Discovery task; live external provider verification remains blocked until credentials are configured.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-IDENTITY-001",
+      "description": "Users authenticate and receive server-enforced project ownership in SQLite; the configured super-admin requires explicit password-verified operator provisioning.",
+      "status": "PARTIALLY_IMPLEMENTED"
+    },
+    {
+      "id": "REQ-CICD-001",
+      "description": "Pull requests and main pushes run Node 22.13/24 syntax, blueprint, and automated-test checks; a protected production deployment is gated on all release checks.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-GAME-STUDIO-001",
+      "description": "Signed-in users can create original deterministic 2D Canvas game projects, inspect a beginner-readable plan, and run a network-restricted preview.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-GAME-VERSIONS-001",
+      "description": "Game project versions and validated local progress are persisted in SQLite with owner checks and non-destructive restore.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-GAME-AI-001",
+      "description": "Provider-backed multi-agent game planning, source generation, assets, and QA execute and verify complete 2D and 3D games.",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "REQ-ARTIFACTS-001",
+      "description": "Project owners can persist request-specific prototype files, perform versioned file and folder operations, review audit history, restore prior versions, and export project contents.",
+      "status": "VERIFIED"
+    },
+    {
+      "id": "REQ-PROJECT-GENERATION-001",
+      "description": "Approved saved blueprints are validated and converted into deterministic project-type-specific task graphs; a bounded local worker creates editable frontend prototype artifacts, not a complete production application.",
+      "status": "PARTIALLY_IMPLEMENTED"
+    },
+    {
+      "id": "REQ-UI-ARTIFACTS-001",
+      "description": "The existing builder, task, game, and artifact surfaces use shared glass/neon tokens, accessible focus and reduced-motion behavior, and mobile layouts.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-PRODUCTION-DEPLOY-001",
+      "description": "Deploy verified artifacts to a configured production host and confirm production readiness from a post-deploy health read.",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "REQ-V13-MARKDOWN-001",
+      "description": "Render common Markdown blocks in project documents while escaping raw HTML and rejecting unsafe link and image protocols.",
+      "status": "IMPLEMENTED_UNVERIFIED"
+    },
+    {
+      "id": "REQ-V13-GITHUB-SYNC-001",
+      "description": "Authenticate a GitHub account and safely synchronize project files in both directions with conflict review.",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "REQ-V13-FAILOVER-001",
+      "description": "Select and fail over among configured provider models with recorded provenance and bounded retries.",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "REQ-V13-BACKGROUND-001",
+      "description": "Run durable project builds in a background queue with recovery after process interruption.",
+      "status": "MISSING"
+    },
+    {
+      "id": "REQ-V13.2-MANIFEST-001",
+      "description": "Provide an owner-scoped downloadable implementation manifest derived from persisted project tasks, executions, artifacts, and build records without overstating verification.",
+      "status": "VERIFIED"
+    }
+  ],
+  "runtime": {
+    "language": "JavaScript with Node-native type-stripped TypeScript services",
+    "minimumNodeVersion": "22.13.0",
+    "dependencies": [],
+    "persistence": "SQLite users, sessions, projects, 20 core-agent specifications, task/execution records, artifacts/builds/games, encrypted provider credentials, provider health/audit, model requests, and routing decisions",
+    "externalTools": ["zip", "unzip"]
+  },
+  "architecture": {
+    "pattern": "Single Node.js HTTP application with modular services, static browser client, and SQLite persistence.",
+    "externalAiStudio": "This repository does not contain a connected Google AI Studio application or configured Gemini provider.",
+    "layers": [
+      { "name": "Browser workspace", "status": "IMPLEMENTED_UNVERIFIED", "entry": "public/app.js" },
+      { "name": "Authentication and ownership", "status": "IMPLEMENTED_UNVERIFIED", "entry": "src/auth.js" },
+      { "name": "HTTP API", "status": "IMPLEMENTED_UNVERIFIED", "entry": "server.js" },
+      { "name": "Blueprint and capability planning", "status": "IMPLEMENTED_UNVERIFIED", "entry": "src/services/ProjectGenerator.ts" },
+      { "name": "Task orchestration", "status": "PARTIALLY_IMPLEMENTED", "entry": "src/services/AgentOrchestrator.ts" },
+      { "name": "SQLite persistence", "status": "IMPLEMENTED_UNVERIFIED", "entry": "src/store.js" },
+      { "name": "OpenAI-compatible provider adapter and model router", "status": "IMPLEMENTED_UNVERIFIED", "entry": "src/providers.js" },
+      { "name": "Live provider configuration and verification", "status": "BLOCKED", "entry": "src/providers.js" },
+      { "name": "Durable jobs and production deployment", "status": "BLOCKED", "entry": null }
+    ]
+  },
+  "databaseEntities": [
+    { "name": "users", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "sessions", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "projects", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "agent_tasks", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "agent_task_events", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "agentic_executions", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "project_artifacts and versions", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "games, versions, and saves", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "provider_credentials, provider_health, provider_audit", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "model_requests and model_routing_decisions", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "agent versions, model registry, workflows, billing, and organizations", "status": "MISSING" }
+  ],
+  "providerIntegrations": {
+    "configured": [],
+    "supportedAdapters": ["openai-compatible"],
+    "implementedCapabilities": ["encrypted-credentials", "health-check", "model-discovery", "model-routing", "product-discovery"],
+    "status": "BLOCKED",
+    "reason": "The adapter is implemented, but no owner credential or live external provider verification is configured."
+  },
+  "featureFlags": {
+    "providerExecution": false,
+    "web3Transactions": false,
+    "workflowExecution": false,
+    "productionDeployment": false,
+    "safeStaticBuildDiagnostics": true,
+    "sandboxedHtmlPreview": true,
+    "projectZipImportExport": true
+  },
+  "agenticCore": {
+    "capabilityRegistry": "20 versioned specialist definitions are persisted in SQLite; Product Discovery may use the configured adapter and other roles remain deterministic local handlers.",
+    "teamAssembly": "Approved request requirements select matching local capabilities; unsupported external capabilities remain explicitly BLOCKED.",
+    "executionRecord": "Owner-scoped SQLite snapshot and per-agent execution log include input, output, provider/model provenance when a model is used, tool calls, timestamps, state, and read-back validation.",
+    "customAgentLifecycle": "Persistent autonomous agent creation, isolation, evaluation promotion, and deployment are not implemented; no unrestricted permissions are granted."
+  },
+  "gameStudio": {
+    "status": "IMPLEMENTED_UNVERIFIED",
+    "engine": "HTML5 Canvas 2D",
+    "generation": "Deterministic original collection-game template; no AI provider configured",
+    "preview": "Authenticated version route in an iframe sandbox with network access blocked",
+    "supportedRefinement": "Difficulty adjustment; previous versions are retained",
+    "unsupported": [
+      "3D engines and models",
+      "Provider-backed AI agents and generated media",
+      "Multiplayer, scores, leaderboards, and achievements",
+      "Public discovery and external publishing",
+      "Remix integration and monetization"
+    ]
+  },
+  "pipeline": {
+    "ci": "Node.js 22.13 and 24 syntax, blueprint, and test jobs; verified release artifact",
+    "deployment": "Explicit main-branch dispatch, protected environment approval, SSH deployment, rollback, and production-readiness health gate",
+    "deploymentStatus": "BLOCKED"
+  },
+  "release": {
+    "productionReady": false,
+    "status": "PARTIALLY_IMPLEMENTED",
+    "acceptanceGates": [
+      { "id": 1, "name": "Repository discovery", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 2, "name": "Existing functionality preservation", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 3, "name": "Canonical blueprint validation", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 4, "name": "Database schema and migrations", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 5, "name": "Authentication", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 6, "name": "RBAC and tenant isolation", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 7, "name": "Provider adapters", "status": "BLOCKED" },
+      { "id": 8, "name": "Model routing", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 9, "name": "Tool registry", "status": "MISSING" },
+      { "id": 10, "name": "Dynamic capability discovery", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 11, "name": "Persistent agent factory", "status": "MISSING" },
+      { "id": 12, "name": "Agent collaboration and handoffs", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 13, "name": "Software, AI, and game factories", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 14, "name": "Workflow and asset factories", "status": "BLOCKED" },
+      { "id": 15, "name": "Web3 safety and integrations", "status": "BLOCKED" },
+      { "id": 16, "name": "End-to-end, security, performance, and accessibility", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 17, "name": "Deployment and production read-back", "status": "BLOCKED" },
+      { "id": 18, "name": "Structured response and Markdown renderer", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 19, "name": "Complete project explorer and file operations", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 20, "name": "Editable code and Markdown workspace", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 21, "name": "Artifact registry and verified ZIP exchange", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 22, "name": "Current-project application preview", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 23, "name": "Playable game preview", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 24, "name": "Responsive device viewport controls", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 25, "name": "Twenty executable local specialist agents", "status": "VERIFIED" },
+      { "id": 26, "name": "Provider and agent failover", "status": "BLOCKED" },
+      { "id": 27, "name": "Persistent background execution and recovery", "status": "MISSING" },
+      { "id": 28, "name": "GitHub OAuth and account connection", "status": "BLOCKED" },
+      { "id": 29, "name": "Authorized repository import", "status": "BLOCKED" },
+      { "id": 30, "name": "GODS-to-GitHub synchronization", "status": "BLOCKED" },
+      { "id": 31, "name": "GitHub-to-GODS synchronization", "status": "BLOCKED" },
+      { "id": 32, "name": "Protected conflict detection and resolution", "status": "BLOCKED" },
+      { "id": 33, "name": "Security, isolation, and secret protection", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 34, "name": "Complete-project read-back and delivery report", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 35, "name": "Evidence-derived owner-scoped implementation manifest", "status": "VERIFIED" }
+    ],
+    "blockers": [
+      "Automated email verification and delivery-based password recovery are not configured",
+      "No managed database backups or automated super-admin identity verification",
+      "No configured email delivery for password recovery",
+      "Authentication rate limiting is process-local and not shared across instances",
+      "No owner-configured or live-verified AI provider; Product Discovery has a mock-tested OpenAI-compatible adapter, while other agents are not provider-backed",
+      "The model router has deterministic local decision tests but no live provider selection, failover, model evaluation, or provider-backed code generation evidence",
+      "The local code-generation worker creates a client-side HTML/CSS/JavaScript prototype only; generated CRUD is browser-local and does not provide authenticated backend/database integration",
+      "Full isolated dependency installation, compilation, arbitrary application runtime, and durable background build queue are unavailable; current build endpoint only performs bounded syntax/structure checks",
+      "Persistent autonomous custom-agent authoring, isolated development, full evaluation datasets, approval, and deployment are unavailable",
+      "Web3 wallet, swap, transaction simulation, signing, broadcast, confirmation, and read-back integrations are not configured",
+      "Workflow definitions, execution workers, connectors, visual editing, and deployment lifecycle are not implemented",
+      "System zip/unzip utilities are required for project ZIP operations; archives are text-only, limited to 4 MiB uncompressed, and conflicting imports are rejected rather than overwritten",
+      "Automated browser visual, keyboard/screen-reader, and generated-project acceptance testing is not configured",
+      "Game Studio is limited to a deterministic 2D template; broad engines, media, services, and agents are not configured",
+      "No production host, deployment credentials, protected-environment approval, or production-ready health response is configured",
+      "No published game destination or external integration is verified",
+      "No GitHub OAuth client, encrypted token storage, repository adapter, or user-authorized repository access is configured",
+      "No provider credentials or model adapters are configured; failover to another provider would risk unauthorized data transmission",
+      "The Markdown renderer does not provide syntax highlighting, math, Mermaid execution, structured AI chat responses, or code-block action workflows",
+      "Project-specific automated test execution results are not persisted; the implementation manifest reports test status as UNKNOWN"
+    ]
+  }
+}
