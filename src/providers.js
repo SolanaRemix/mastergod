@@ -7,6 +7,7 @@ const { randomUUID } = require("node:crypto");
 
 const PROVIDER_ID = "openai-compatible";
 const DEFAULT_ENDPOINT = "https://api.openai.com/v1";
+const DEFAULT_PROVIDER_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_RETRIES = 3;
 const PRODUCT_DISCOVERY_SCHEMA = Object.freeze({
@@ -281,7 +282,7 @@ class OpenAICompatibleAdapter {
   }
 
   async request(endpoint, pathname, apiKey, options = {}) {
-    const timeoutSignal = AbortSignal.timeout(options.timeoutMs || 15_000);
+    const timeoutSignal = AbortSignal.timeout(options.timeoutMs || DEFAULT_PROVIDER_TIMEOUT_MS);
     const signals = [timeoutSignal];
     if (options.signal) signals.push(options.signal);
     const signal = AbortSignal.any(signals);
@@ -477,6 +478,7 @@ class ProviderService {
     this.adapter = options.adapter || new OpenAICompatibleAdapter(options);
     this.router = new ModelRouter(store);
     this.key = options.encryptionKey || null;
+    this.endpointValidationTimeoutMs = options.endpointValidationTimeoutMs || DEFAULT_PROVIDER_TIMEOUT_MS;
   }
 
   getKey() {
@@ -522,7 +524,18 @@ class ProviderService {
     const endpoint = typeof value.endpoint === "string" && value.endpoint.trim()
       ? value.endpoint.trim()
       : DEFAULT_ENDPOINT;
-    await validateProviderEndpoint(endpoint, { allowLocal: this.adapter.allowLocal, lookup: this.adapter.lookup });
+    const validationTimeout = AbortSignal.timeout(this.endpointValidationTimeoutMs);
+    try {
+      await awaitWithSignal(
+        validateProviderEndpoint(endpoint, { allowLocal: this.adapter.allowLocal, lookup: this.adapter.lookup }),
+        validationTimeout
+      );
+    } catch (error) {
+      if (validationTimeout.aborted) {
+        throw new ProviderError("PROVIDER_TIMEOUT", "Provider endpoint validation timed out.", { retryable: true });
+      }
+      throw error;
+    }
     const encrypted = this.encryptCredential({ apiKey: value.apiKey, endpoint, model: value.model });
     return this.store.saveProviderCredential({
       id: randomUUID(),

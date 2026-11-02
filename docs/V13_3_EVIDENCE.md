@@ -21,7 +21,7 @@
 | 08 | Security | PASS (focused tests) | Tests cover private-address policy, credential encryption/redaction/ownership, production key refusal, and sanitized provider errors. DNS address pinning is not implemented and remains a documented limitation. |
 | 09 | Agents & AI | PASS (mock evidence) | `mock provider completes Product Discovery with validated output, usage, health, and read-back`; it is not evidence of live-provider operation or full agent verification. |
 | 10 | Testing | PASS | `npm run check`, `npm test` (36 passed), focused provider suite (8 passed), and `npm run build` all completed successfully. |
-| 11 | Build & Deploy | BLOCKED | Reviewed-revision build is pending; no production host, deployment credentials, or post-deploy health probe is configured. |
+| 11 | Build & Deploy | BLOCKED | Build evidence is recorded below; deployment remains blocked because no production host, credentials, or post-deploy health probe is configured. |
 | 12 | Delivery | MISSING | This ledger is published, but no Increment 1 delivery manifest and ZIP SHA-256 were produced. |
 
 ### Commands and executed evidence

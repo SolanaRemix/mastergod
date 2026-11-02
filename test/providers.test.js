@@ -12,6 +12,7 @@ const {
   ModelRouter,
   PRODUCT_DISCOVERY_SCHEMA,
   ProviderError,
+  ProviderService,
   isPrivateAddress,
   validateProviderEndpoint
 } = require("../src/providers");
@@ -414,6 +415,20 @@ test("OpenAI-compatible adapter maps auth, rate-limit, server, timeout, and inva
     model: "gods-test-model",
     messages: [],
     timeoutMs: 30
+  }), (error) => error.code === "PROVIDER_TIMEOUT");
+
+  const slowLookupService = new ProviderService({}, {
+    encryptionKey: randomBytes(32),
+    endpointValidationTimeoutMs: 30,
+    lookup: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return [{ address: "8.8.8.8", family: 4 }];
+    }
+  });
+  await assert.rejects(slowLookupService.saveCredential("owner", {
+    apiKey: API_KEY,
+    endpoint: "https://api.openai.com/v1",
+    model: "gods-test-model"
   }), (error) => error.code === "PROVIDER_TIMEOUT");
 });
 
