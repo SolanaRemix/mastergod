@@ -669,6 +669,7 @@ class PersistenceStore {
   async saveProviderCredential(credential) {
     await this.initialize();
     const now = new Date().toISOString();
+    const auditId = randomUUID();
     this.transaction(() => {
       this.database.prepare(`
         INSERT INTO provider_credentials (
@@ -684,10 +685,12 @@ class PersistenceStore {
       this.database.prepare(`
         INSERT INTO provider_audit (id, owner_id, provider_id, action, details, created_at)
         VALUES (?, ?, ?, 'credential-set', ?, ?)
-      `).run(randomUUID(), credential.ownerId, credential.providerId, JSON.stringify({ model: credential.model }), now);
+      `).run(auditId, credential.ownerId, credential.providerId, JSON.stringify({ model: credential.model }), now);
     });
     const stored = await this.getProviderCredential(credential.ownerId, credential.providerId);
-    if (!stored || stored.ciphertext !== credential.ciphertext || stored.iv !== credential.iv || stored.tag !== credential.tag) {
+    const audit = this.database.prepare("SELECT id FROM provider_audit WHERE id = ? AND owner_id = ?").get(auditId, credential.ownerId);
+    if (!stored || stored.ciphertext !== credential.ciphertext || stored.iv !== credential.iv || stored.tag !== credential.tag
+      || stored.endpoint !== credential.endpoint || stored.model !== credential.model || !audit) {
       throw new Error("Provider credential read-back verification failed.");
     }
     return { provider_id: stored.providerId, hasKey: true, updated_at: stored.updatedAt };
@@ -696,6 +699,7 @@ class PersistenceStore {
   async deleteProviderCredential(ownerId, providerId) {
     await this.initialize();
     const now = new Date().toISOString();
+    const auditId = randomUUID();
     const deleted = this.transaction(() => {
       const current = this.database.prepare(`
         SELECT 1 FROM provider_credentials WHERE owner_id = ? AND provider_id = ?
@@ -705,16 +709,20 @@ class PersistenceStore {
       this.database.prepare(`
         INSERT INTO provider_audit (id, owner_id, provider_id, action, details, created_at)
         VALUES (?, ?, ?, 'credential-deleted', '{}', ?)
-      `).run(randomUUID(), ownerId, providerId, now);
+      `).run(auditId, ownerId, providerId, now);
       return true;
     });
-    if (await this.getProviderCredential(ownerId, providerId)) throw new Error("Provider credential deletion read-back verification failed.");
+    if (await this.getProviderCredential(ownerId, providerId)
+      || (deleted && !this.database.prepare("SELECT id FROM provider_audit WHERE id = ? AND owner_id = ?").get(auditId, ownerId))) {
+      throw new Error("Provider credential deletion read-back verification failed.");
+    }
     return deleted;
   }
 
   async recordProviderHealth(health) {
     await this.initialize();
     const id = randomUUID();
+    const auditId = randomUUID();
     this.transaction(() => {
       this.database.prepare(`
         INSERT INTO provider_health (id, owner_id, provider_id, checked_at, ok, latency_ms, error)
@@ -723,16 +731,20 @@ class PersistenceStore {
       this.database.prepare(`
         INSERT INTO provider_audit (id, owner_id, provider_id, action, details, created_at)
         VALUES (?, ?, ?, 'health-check', ?, ?)
-      `).run(randomUUID(), health.ownerId, health.providerId, JSON.stringify({
+      `).run(auditId, health.ownerId, health.providerId, JSON.stringify({
         ok: health.ok,
         latencyMs: health.latencyMs,
         error: health.error
       }), health.checkedAt);
     });
     const row = this.database.prepare(`
-      SELECT ok, latency_ms AS latencyMs, error FROM provider_health WHERE id = ?
+      SELECT owner_id AS ownerId, provider_id AS providerId, checked_at AS checkedAt,
+        ok, latency_ms AS latencyMs, error FROM provider_health WHERE id = ?
     `).get(id);
-    if (!row || row.ok !== Number(health.ok) || row.latencyMs !== health.latencyMs) {
+    const audit = this.database.prepare("SELECT id FROM provider_audit WHERE id = ? AND owner_id = ?").get(auditId, health.ownerId);
+    if (!row || row.ownerId !== health.ownerId || row.providerId !== health.providerId
+      || row.checkedAt !== health.checkedAt || row.ok !== Number(health.ok)
+      || row.latencyMs !== health.latencyMs || row.error !== health.error || !audit) {
       throw new Error("Provider health read-back verification failed.");
     }
     return row;
@@ -741,18 +753,43 @@ class PersistenceStore {
   async recordModelRequest(request) {
     await this.initialize();
     const createdAt = new Date().toISOString();
-    this.database.prepare(`
-      INSERT INTO model_requests (
-        id, project_id, owner_id, task_id, agent_id, provider_id, model, prompt_tokens,
-        completion_tokens, latency_ms, status, error, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      request.id, request.projectId, request.ownerId, request.taskId, request.agentId,
-      request.providerId, request.model, request.promptTokens, request.completionTokens,
-      request.latencyMs, request.status, request.error, createdAt
-    );
-    const row = this.database.prepare("SELECT id, status FROM model_requests WHERE id = ?").get(request.id);
-    if (!row || row.status !== request.status) throw new Error("Model request read-back verification failed.");
+    const auditId = randomUUID();
+    this.transaction(() => {
+      this.database.prepare(`
+        INSERT INTO model_requests (
+          id, project_id, owner_id, task_id, agent_id, provider_id, model, prompt_tokens,
+          completion_tokens, latency_ms, status, error, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        request.id, request.projectId, request.ownerId, request.taskId, request.agentId,
+        request.providerId, request.model, request.promptTokens, request.completionTokens,
+        request.latencyMs, request.status, request.error, createdAt
+      );
+      this.database.prepare(`
+        INSERT INTO provider_audit (id, owner_id, provider_id, action, details, created_at)
+        VALUES (?, ?, ?, 'model-request', ?, ?)
+      `).run(auditId, request.ownerId, request.providerId, JSON.stringify({
+        taskId: request.taskId,
+        agentId: request.agentId,
+        model: request.model,
+        status: request.status,
+        error: request.error
+      }), createdAt);
+    });
+    const row = this.database.prepare(`
+      SELECT id, project_id AS projectId, owner_id AS ownerId, task_id AS taskId,
+        agent_id AS agentId, provider_id AS providerId, model, prompt_tokens AS promptTokens,
+        completion_tokens AS completionTokens, latency_ms AS latencyMs, status, error
+      FROM model_requests WHERE id = ?
+    `).get(request.id);
+    const audit = this.database.prepare("SELECT id FROM provider_audit WHERE id = ? AND owner_id = ?").get(auditId, request.ownerId);
+    if (!row || !audit || row.projectId !== request.projectId || row.ownerId !== request.ownerId
+      || row.taskId !== request.taskId || row.agentId !== request.agentId
+      || row.providerId !== request.providerId || row.model !== request.model
+      || row.promptTokens !== request.promptTokens || row.completionTokens !== request.completionTokens
+      || row.latencyMs !== request.latencyMs || row.status !== request.status || row.error !== request.error) {
+      throw new Error("Model request read-back verification failed.");
+    }
     return row;
   }
 
@@ -767,8 +804,16 @@ class PersistenceStore {
       decision.id, decision.projectId, decision.ownerId, decision.taskId, JSON.stringify(decision.inputs),
       decision.providerId, decision.model, decision.reason, createdAt
     );
-    const row = this.database.prepare("SELECT id FROM model_routing_decisions WHERE id = ?").get(decision.id);
-    if (!row) throw new Error("Model routing decision read-back verification failed.");
+    const row = this.database.prepare(`
+      SELECT id, project_id AS projectId, owner_id AS ownerId, task_id AS taskId,
+        inputs_json AS inputsJson, chosen_provider AS providerId, chosen_model AS model, reason
+      FROM model_routing_decisions WHERE id = ?
+    `).get(decision.id);
+    if (!row || row.projectId !== decision.projectId || row.ownerId !== decision.ownerId
+      || row.taskId !== decision.taskId || row.inputsJson !== JSON.stringify(decision.inputs)
+      || row.providerId !== decision.providerId || row.model !== decision.model || row.reason !== decision.reason) {
+      throw new Error("Model routing decision read-back verification failed.");
+    }
     return decision;
   }
 
@@ -1743,24 +1788,39 @@ class PersistenceStore {
     });
   }
 
-  async finishAgentExecution(id, { status, output = null, error = null, validation = null, toolsInvoked = null }) {
+  async finishAgentExecution(id, {
+    status,
+    output = null,
+    error = null,
+    validation = null,
+    toolsInvoked = null,
+    modelProvider = null,
+    modelId = null
+  }) {
     await this.initialize();
     if (!["COMPLETED", "BLOCKED", "FAILED"].includes(status)) throw new Error("Agent execution result status is invalid.");
     const updated = this.database.prepare(`
-      UPDATE agent_executions SET output = ?, error = ?, validation = ?, tools_invoked = COALESCE(?, tools_invoked), status = ?, finished_at = ?
+      UPDATE agent_executions SET output = ?, error = ?, validation = ?,
+        tools_invoked = COALESCE(?, tools_invoked),
+        model_provider = COALESCE(?, model_provider),
+        model_id = COALESCE(?, model_id),
+        status = ?, finished_at = ?
       WHERE id = ? AND status = 'RUNNING'
     `).run(
       output === null ? null : JSON.stringify(output),
       error === null ? null : JSON.stringify(error),
       validation === null ? null : JSON.stringify(validation),
       toolsInvoked === null ? null : JSON.stringify(toolsInvoked),
+      modelProvider,
+      modelId,
       status,
       new Date().toISOString(),
       id
     );
     if (Number(updated.changes) !== 1) throw new Error("Agent execution could not be finalized exactly once.");
     const row = this.database.prepare(`
-      SELECT output, error, validation, status, started_at AS startedAt, finished_at AS finishedAt
+      SELECT output, error, validation, model_provider AS modelProvider, model_id AS modelId,
+        status, started_at AS startedAt, finished_at AS finishedAt
       FROM agent_executions WHERE id = ?
     `).get(id);
     if (!row || row.status !== status || !row.finishedAt) throw new Error("Agent execution result failed database read-back.");

@@ -17,7 +17,7 @@ Saving does not transmit project content. Running Product Discovery sends the or
 
 `GODS_SECRET_KEY` must encode exactly 32 bytes as 64 hexadecimal characters or base64. Production startup refuses to proceed without a valid key. Keep it outside source control and use the same key to decrypt existing credentials after restart; losing or rotating it without re-encrypting credentials makes those credentials unavailable.
 
-The default endpoint is `https://api.openai.com/v1`. Non-HTTPS endpoints and private/loopback addresses are rejected by default. Local development endpoints are allowed only when the server operator explicitly sets `GODS_ALLOW_LOCAL_PROVIDER=1`; do not enable this on an untrusted deployment.
+The default endpoint is `https://api.openai.com/v1`. Public endpoints are restricted to OpenAI, Azure OpenAI, OpenRouter, and Groq hostnames; non-HTTPS endpoints, unknown public hosts, and private/loopback DNS results are rejected by default. Local development endpoints are allowed only when the server operator explicitly sets `GODS_ALLOW_LOCAL_PROVIDER=1`; do not enable this on an untrusted deployment.
 
 ## API
 
@@ -28,6 +28,6 @@ The default endpoint is `https://api.openai.com/v1`. Non-HTTPS endpoints and pri
 - `GET /api/providers/openai-compatible/models` discovers model IDs.
 - `GET /api/projects/:id/routing-decisions` returns that owner's persisted routing decisions.
 
-All writes require an authenticated, same-origin request. Credentials are encrypted with AES-256-GCM. Provider URLs are DNS-checked, redirects are rejected, responses are size-limited, retryable failures receive at most three attempts, and errors/audit records omit response bodies and credentials. Only the Product Discovery agent is provider-wired in Increment 1; other specialist roles remain local or blocked.
+All writes require an authenticated, same-origin JSON request. Credentials are encrypted with AES-256-GCM. Provider URLs are host-allowlisted and DNS-checked, redirects are rejected, responses are size-limited, retryable failures receive at most three attempts, and errors/audit records omit response bodies and credentials. Node's built-in `fetch` does not expose DNS pinning; keep endpoints to the documented trusted hosts and leave local-provider opt-in disabled on untrusted deployments. Only the Product Discovery agent is provider-wired in Increment 1; other specialist roles remain local or blocked.
 
 No Gemini, Anthropic, provider failover, streaming, or real external provider success is claimed in this increment.

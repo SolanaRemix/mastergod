@@ -306,6 +306,8 @@ class AgentOrchestrator {
       if (agentExecutionId) await this.store.finishAgentExecution(agentExecutionId, {
         status: "COMPLETED",
         output,
+        modelProvider: typeof output.providerId === "string" ? output.providerId : null,
+        modelId: typeof output.model === "string" ? output.model : null,
         toolsInvoked: Array.isArray(output.toolCalls) ? output.toolCalls : [],
         validation: { outputContract: "VERIFIED", taskStateReadBack: completed?.status === "COMPLETED" }
       });

@@ -106,7 +106,7 @@ async function api(path, options = {}) {
     }
   });
   const body = await response.json();
-  if (!response.ok) throw new Error(body.error || "The request could not be completed.");
+  if (!response.ok) throw new Error(body.error || body.reason || "The request could not be completed.");
   return body;
 }
 
@@ -1182,6 +1182,7 @@ providerSettingsForm.addEventListener("submit", async (event) => {
   } catch (error) {
     showError(error.message);
   } finally {
+    providerApiKeyInput.value = "";
     button.disabled = false;
   }
 });
@@ -1233,7 +1234,7 @@ checkProviderHealthButton.addEventListener("click", async () => {
 removeProviderButton.addEventListener("click", async () => {
   removeProviderButton.disabled = true;
   try {
-    await api("/api/providers/openai-compatible/credential", { method: "DELETE" });
+    await api("/api/providers/openai-compatible/credential", { method: "DELETE", body: JSON.stringify({}) });
     providerStatus.textContent = "Saved provider key removed.";
     providerModelList.replaceChildren();
     providerModelInput.value = "";

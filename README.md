@@ -1,6 +1,6 @@
-# Master GODS V13.2.0
+# Master GODS V13.2 Baseline — V13.3 Increment 1 In Progress
 
-A dependency-free, local-first AI Studio foundation with authenticated ownership, SQLite persistence, request-derived capability plans and execution snapshots, a deterministic 2D game template, and an evidence-aware artifact file manager. Provider-backed agent execution and the full production software factory are not configured.
+A dependency-free, local-first AI Studio foundation with authenticated ownership, SQLite persistence, request-derived capability plans, a deterministic 2D game template, an evidence-aware artifact file manager, and an initial OpenAI-compatible provider boundary for Product Discovery. No live external provider is configured, and the full production software factory is not implemented.
 
 ## Run locally
 
@@ -18,8 +18,8 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Create an account with a pa
 2. Review and edit the locally split requirement statements.
 3. Approve or reject each requirement.
 4. Download the persisted `gods.blueprint.yaml` for the project.
-5. Generate a request-derived capability team and task graph. The original request, selected agents, gaps, and graph are persisted together. Twenty deterministic local specialist handlers are registered and can be run on an approved project; provider-dependent capabilities remain `BLOCKED`.
-6. Run a local code-generation task to create editable HTML/CSS/JavaScript prototype files, then use the artifact manager to edit, version, upload, download, preview saved HTML, or import/export text-only project ZIPs. These local handlers do not call AI models and the prototype does not provide production backend, authentication, or database features.
+5. Generate a request-derived capability team and task graph. The original request, selected agents, gaps, and graph are persisted together. Product Discovery can use the configured provider; without one, its task remains `BLOCKED`. Other registered specialists remain deterministic local workers.
+6. Optionally connect an OpenAI-compatible provider in **Connect an AI provider**, then run Product Discovery. The approved request is sent only when that task is run. Local code-generation tasks create editable HTML/CSS/JavaScript prototypes; the artifact manager can edit, version, upload, download, preview saved HTML, or import/export text-only project ZIPs. Generated prototypes do not provide production backend, authentication, or database features.
 7. Run a bounded static build check for source syntax and file structure. It does not install dependencies, compile, or execute arbitrary project code.
 
 Project APIs require an authenticated account and only return projects owned by that account. New accounts are regular users; matching an email address never grants administrator rights.
@@ -32,15 +32,17 @@ The file manager supports read, create, edit, copy, rename, delete, download, fo
 
 Markdown artifacts have an editable source and live preview supporting headings, paragraphs, nested lists/checklists, tables, blockquotes, inline emphasis/code, safe links, HTTPS images, and fenced code. Raw HTML is escaped. This is not a full CommonMark implementation and does not provide syntax highlighting, math/Mermaid execution, or AI-response code actions.
 
-### UI design system
+### Provider boundary
 
-The existing builder, requirement review, project and game cards, task panels, and artifact editor share dark glass/neon design tokens and the `FlashGlowCard` DOM helper. Its CSS variants are purple, orange, red, green, yellow, cyan, blue, and `rainbow-subtle`; animation and blur are optional and reduced-motion is respected. This is a skin for the actual single-page app, not an implementation of absent chat, model, provider, billing, community, or asset-studio pages.
+The signed-in workspace can save an OpenAI-compatible endpoint, key, and model, check its connection, and discover model IDs. Credentials are AES-256-GCM encrypted with `GODS_SECRET_KEY`; production startup requires this 32-byte key (64 hex characters or base64). Private or loopback endpoints are denied unless the operator explicitly sets `GODS_ALLOW_LOCAL_PROVIDER=1`. Only Product Discovery is provider-wired in Increment 1. Saving a credential does not transmit project data; running Product Discovery sends approved requirements to the configured endpoint. Review provider data handling and costs first.
+
+The existing builder, requirement review, provider settings, project and game cards, task panels, and artifact editor share dark glass/neon design tokens and the `FlashGlowCard` DOM helper. Its CSS variants are purple, orange, red, green, yellow, cyan, blue, and `rainbow-subtle`; animation and blur are optional and reduced-motion is respected. This does not implement the absent broad chat, billing, community, or asset-studio surfaces.
 
 ### Provision the super administrator
 
 After the intended account has been created and its email identity has been independently verified by the operator, run `npm run provision-admin` in an interactive terminal on the host. The command accepts only `GODS_SUPER_ADMIN_EMAIL` (defaults to `gxqstudio@gmail.com`), asks for the account password without echoing it, verifies that password against the stored scrypt hash, and performs a conditional server-side role update. Never put passwords in command arguments or grant admin based on an email string alone. `GET /api/admin/summary` is available only to a currently authenticated, provisioned administrator. Email identity verification is an operator procedure, not an implemented email integration.
 
-The browser does not call an AI service. Requirement extraction and capability matching use deterministic text rules, not model-based interpretation. Project-specific blueprints are JSON documents (a valid YAML 1.2 subset) stored with a `.yaml` extension to avoid an unverified YAML dependency. The root [`gods.blueprint.yaml`](gods.blueprint.yaml) records the current product scope and unmet release gates.
+The browser never calls an AI service directly. Initial requirement drafting and capability matching use deterministic text rules; the server can call the explicitly configured provider only for Product Discovery. Provider output is schema-validated but remains `IMPLEMENTED_UNVERIFIED`. Project-specific blueprints are JSON documents (a valid YAML 1.2 subset) stored with a `.yaml` extension to avoid an unverified YAML dependency. The root [`gods.blueprint.yaml`](gods.blueprint.yaml) records the current product scope and unmet release gates.
 
 ## Platform documentation
 
@@ -61,6 +63,11 @@ The browser does not call an AI service. Requirement extraction and capability m
 - `POST /api/auth/reset-password` — consumes a delivered single-use token, changes the password, and revokes existing sessions.
 - `GET /api/admin/summary` — operator-provisioned administrators only.
 - `GET /api/agents` — capability descriptors, contracts, and honest availability/deployment status.
+- `GET /api/providers` — provider catalog with `hasKey` and update time only; never returns a credential.
+- `PUT /api/providers/openai-compatible/credential` — save `{ "apiKey": "...", "endpoint": "https://...", "model": "..." }` encrypted at rest.
+- `DELETE /api/providers/openai-compatible/credential` — remove the signed-in owner's key.
+- `POST /api/providers/openai-compatible/health` — test the saved endpoint and persist the health/audit result.
+- `GET /api/providers/openai-compatible/models` — discover models from the saved endpoint.
 - `GET /api/projects` — local project records.
 - `POST /api/projects` — create a draft from `{ "prompt": "..." }`.
 - `GET /api/projects/:id` — retrieve a project.
@@ -71,7 +78,8 @@ The browser does not call an AI service. Requirement extraction and capability m
 - `GET /api/projects/:id/manifest` — view or download an evidence-derived project manifest; it does not mark untested work as verified.
 - `GET /api/projects/:id/tasks` — list persisted, owner-scoped task records.
 - `GET /api/projects/:id/tasks/:taskId/events` — read a task's persisted state-transition history.
-- `POST /api/projects/:id/tasks/:taskId/run` — execute a registered task handler; unavailable workers remain `BLOCKED`.
+- `POST /api/projects/:id/tasks/:taskId/run` — execute a registered task handler; Product Discovery returns `503 BLOCKED` without an eligible configured provider.
+- `GET /api/projects/:id/routing-decisions` — read the owner's persisted, explainable model-routing decisions.
 - `POST /api/projects/:id/agents/:agentId/execute` — execute one of the 20 registered local specialists on an approved project and persist its result; provider-dependent tasks report `BLOCKED`.
 - `POST /api/projects/:id/artifacts/generate` — retired static generator (`410 BLOCKED`); use the file manager for explicit user-managed artifacts.
 - `GET /api/projects/:id/artifacts` — list owned files and folders.
@@ -95,6 +103,8 @@ The browser does not call an AI service. Requirement extraction and capability m
 - `GET|POST /api/games/:id/save` — read or save validated local game progress.
 
 Requests that change state require JSON and are size-limited. State-changing browser requests are checked against the request origin, login and registration have process-local rate limits, and the SQLite database is created with restrictive local permissions. Existing legacy JSON data is imported once at startup; only projects linked to an imported account are retained in the authenticated project database. Original JSON files are left untouched for backup/recovery. The password reset-token lifecycle is implemented internally, but the public recovery request returns `BLOCKED` until a real email delivery adapter is configured; no token is issued or emailed through the public route. Rate limits are not distributed, and email verification, administrator provisioning, managed database backups, and multi-factor authentication are not implemented. Do not expose this preview to an untrusted network.
+
+Provider credentials are encrypted and owner-scoped; provider error bodies are not returned or logged. DNS checks reject private/loopback targets by default and redirects are refused. Provider requests have a bounded response size and up to three attempts for retryable failures. A real external provider is not configured or verified in this repository; mock-provider tests are not live integration evidence.
 
 ## Validation
 
@@ -129,4 +139,4 @@ This is a deterministic starter template, **not AI generation**. Its accepted ed
 
 ## Delivery status
 
-The local planning workflow, SQLite persistence, password authentication, project ownership, game-project versioning/save access, sandbox preview response, explicit super-admin provisioning, deployment preflight, and admin-only summary route have focused automated coverage. The complete mission is **not production-ready**: model/provider agents, broad game generation and real media providers, online platform services, automated email verification/recovery, distributed rate limiting, managed backups, integrations, full generated-game QA, and a production target are not present. The authoritative status and blockers are listed in [`gods.blueprint.yaml`](gods.blueprint.yaml); no external connection or successful deployment is claimed.
+The local planning workflow, provider credential boundary, mock Product Discovery flow, SQLite persistence, password authentication, project ownership, game-project versioning/save access, sandbox preview, explicit super-admin provisioning, and deployment preflight have focused automated coverage. The complete mission is **not production-ready**: no real provider credentials or live provider verification are configured; provider-backed agents beyond Product Discovery, broad game generation, real media providers, online platform services, automated email verification/recovery, distributed rate limiting, managed backups, and production deployment remain unavailable. The authoritative status and blockers are listed in [`gods.blueprint.yaml`](gods.blueprint.yaml); mock results are not external connection evidence.

@@ -171,10 +171,16 @@ test("SSRF endpoint policy rejects private addresses unless local-provider opt-i
     (error) => error.code === "PRIVATE_PROVIDER_URL"
   );
   await assert.rejects(
-    validateProviderEndpoint("https://provider.example.test/v1", {
+    validateProviderEndpoint("https://api.openai.com/v1", {
       lookup: async () => [{ address: "10.0.0.2" }]
     }),
     (error) => error.code === "PRIVATE_PROVIDER_URL"
+  );
+  await assert.rejects(
+    validateProviderEndpoint("https://untrusted.example.test/v1", {
+      lookup: async () => [{ address: "8.8.8.8" }]
+    }),
+    (error) => error.code === "PROVIDER_HOST_NOT_SUPPORTED"
   );
   await assert.rejects(
     validateProviderEndpoint("http://provider.example.test/v1", {
@@ -184,15 +190,22 @@ test("SSRF endpoint policy rejects private addresses unless local-provider opt-i
     (error) => error.code === "INSECURE_PROVIDER_URL"
   );
   assert.equal((await validateProviderEndpoint("http://127.0.0.1/v1", { allowLocal: true })).hostname, "127.0.0.1");
-  assert.equal((await validateProviderEndpoint("https://provider.example.test/v1", {
+  assert.equal((await validateProviderEndpoint("https://api.openai.com/v1", {
     lookup: async () => [{ address: "8.8.8.8" }]
-  })).hostname, "provider.example.test");
+  })).hostname, "api.openai.com");
 });
 
 test("credential APIs encrypt secrets, redact responses, enforce ownership, audit writes, and read back", async () => {
   const owner = await register("provider-owner@example.com");
   const other = await register("provider-other@example.com");
   assert.equal((await fetch(`${baseUrl}/api/providers`)).status, 401);
+
+  const crossOrigin = await fetch(`${baseUrl}/api/providers/openai-compatible/credential`, {
+    method: "PUT",
+    headers: { cookie: owner.cookie, "content-type": "application/json" },
+    body: JSON.stringify({ apiKey: API_KEY, endpoint: upstreamUrl, model: "gods-test-model" })
+  });
+  assert.equal(crossOrigin.status, 403);
 
   const saved = await fetch(`${baseUrl}/api/providers/openai-compatible/credential`, {
     method: "PUT",
@@ -233,17 +246,19 @@ test("credential APIs encrypt secrets, redact responses, enforce ownership, audi
   `).get(owner.user.id).count, 1);
   assert.equal(application.store.persistence.database.prepare(`
     SELECT COUNT(*) AS count FROM provider_audit WHERE owner_id = ? AND action = 'credential-set'
-  `).get(owner.user.id).count, 1);
+  `).get(owner.user.id).count, 2);
 
   const deletedByOther = await fetch(`${baseUrl}/api/providers/openai-compatible/credential`, {
     method: "DELETE",
-    headers: authHeaders(other)
+    headers: authHeaders(other, { "content-type": "application/json" }),
+    body: "{}"
   });
   assert.equal(deletedByOther.status, 200);
   assert.equal((await application.store.getProviderCredential(owner.user.id, "openai-compatible")).ownerId, owner.user.id);
   const deleted = await fetch(`${baseUrl}/api/providers/openai-compatible/credential`, {
     method: "DELETE",
-    headers: authHeaders(owner)
+    headers: authHeaders(owner, { "content-type": "application/json" }),
+    body: "{}"
   });
   assert.equal(deleted.status, 200);
   assert.equal((await application.store.getProviderCredential(owner.user.id, "openai-compatible")), null);
@@ -251,6 +266,20 @@ test("credential APIs encrypt secrets, redact responses, enforce ownership, audi
 
 test("Product Discovery stays BLOCKED without a configured provider and persists the routing decision", async () => {
   const account = await register("provider-blocked@example.com");
+  const unavailableModels = await fetch(`${baseUrl}/api/providers/openai-compatible/models`, {
+    headers: authHeaders(account)
+  });
+  assert.equal(unavailableModels.status, 503);
+  const unavailableBody = await unavailableModels.json();
+  assert.equal(unavailableBody.status, "BLOCKED");
+  assert.match(unavailableBody.reason, /provider/i);
+  const unavailableHealth = await fetch(`${baseUrl}/api/providers/openai-compatible/health`, {
+    method: "POST",
+    headers: authHeaders(account, { "content-type": "application/json" }),
+    body: "{}"
+  });
+  assert.equal(unavailableHealth.status, 503);
+  assert.equal((await unavailableHealth.json()).status, "BLOCKED");
   const { project, task } = await createApprovedProject(account, "Build a trucking app for drivers and vehicles.");
   assert.ok(task);
   assert.equal(task.status, "QUEUED");
@@ -260,10 +289,10 @@ test("Product Discovery stays BLOCKED without a configured provider and persists
     headers: authHeaders(account, { "content-type": "application/json" }),
     body: "{}"
   });
-  assert.equal(run.status, 409);
+  assert.equal(run.status, 503);
   const result = await run.json();
   assert.equal(result.task.status, "BLOCKED");
-  assert.match(result.task.blockedReason, /provider/i);
+  assert.match(result.reason, /provider/i);
   const decisions = await fetch(`${baseUrl}/api/projects/${project.id}/routing-decisions`, {
     headers: authHeaders(account)
   });
@@ -316,13 +345,20 @@ test("mock provider completes Product Discovery with validated output, usage, he
     FROM model_requests WHERE project_id = ? AND task_id = ?
   `).get(project.id, task.taskId);
   assert.deepEqual({ ...request }, { promptTokens: 12, completionTokens: 34, status: "IMPLEMENTED_UNVERIFIED" });
+  assert.equal(application.store.persistence.database.prepare(`
+    SELECT COUNT(*) AS count FROM provider_audit
+    WHERE owner_id = ? AND action = 'model-request'
+  `).get(account.user.id).count, 1);
   const auditCount = application.store.persistence.database.prepare(`
     SELECT COUNT(*) AS count FROM provider_audit WHERE owner_id = ? AND action = 'health-check'
   `).get(account.user.id).count;
   assert.equal(auditCount, 1);
   const execution = await fetch(`${baseUrl}/api/projects/${project.id}/agent-executions`, { headers: authHeaders(account) });
   assert.equal(execution.status, 200);
-  assert.equal((await execution.json()).executions[0].status, "COMPLETED");
+  const discoveryRun = (await execution.json()).executions[0];
+  assert.equal(discoveryRun.status, "COMPLETED");
+  assert.equal(discoveryRun.modelProvider, "openai-compatible");
+  assert.equal(discoveryRun.modelId, "gods-test-model");
 });
 
 test("OpenAI-compatible adapter maps auth, rate-limit, server, timeout, and invalid JSON responses", async () => {
@@ -388,4 +424,14 @@ test("production server startup refuses to run without GODS_SECRET_KEY", () => {
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /SECRET_KEY_MISSING|GODS_SECRET_KEY/);
+});
+
+test("workspace exposes encrypted provider settings and consent details", async () => {
+  const html = await fetch(baseUrl).then((response) => response.text());
+  assert.match(html, /Connect an AI provider/);
+  assert.match(html, /provider-api-key/);
+  assert.match(html, /Saving a key does not send project data/);
+  const script = await fetch(`${baseUrl}/app.js`).then((response) => response.text());
+  assert.match(script, /Run Product Discovery/);
+  assert.match(script, /apiKey: data\.get\("apiKey"\)/);
 });

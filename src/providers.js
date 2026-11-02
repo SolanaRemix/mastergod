@@ -122,6 +122,11 @@ async function validateProviderEndpoint(endpoint, {
     throw new ProviderError("INSECURE_PROVIDER_URL", "HTTP provider endpoints require GODS_ALLOW_LOCAL_PROVIDER=1.");
   }
   const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
+  const supportedPublicHost = hostname === "api.openai.com"
+    || hostname === "openrouter.ai"
+    || hostname === "api.openrouter.ai"
+    || hostname === "api.groq.com"
+    || hostname.endsWith(".openai.azure.com");
   let addresses;
   if (net.isIP(hostname)) addresses = [{ address: hostname }];
   else {
@@ -137,15 +142,19 @@ async function validateProviderEndpoint(endpoint, {
   if (!allowLocal && addresses.some(({ address }) => isPrivateAddress(address))) {
     throw new ProviderError("PRIVATE_PROVIDER_URL", "Private and loopback provider endpoints are disabled.");
   }
+  if (!allowLocal && !supportedPublicHost) {
+    throw new ProviderError("PROVIDER_HOST_NOT_SUPPORTED", "Only documented OpenAI-compatible provider hosts are allowed.");
+  }
   return parsed;
 }
 
 function sanitizeError(error) {
   const allowedCodes = new Set([
     "SECRET_KEY_MISSING", "SECRET_KEY_INVALID", "INVALID_PROVIDER_URL", "INSECURE_PROVIDER_URL",
+    "PROVIDER_HOST_NOT_SUPPORTED",
     "PRIVATE_PROVIDER_URL", "PROVIDER_DNS_FAILED", "PROVIDER_AUTH_FAILED", "PROVIDER_RATE_LIMITED",
     "PROVIDER_UNAVAILABLE", "PROVIDER_TIMEOUT", "PROVIDER_NETWORK_ERROR", "PROVIDER_INVALID_RESPONSE",
-    "PROVIDER_INVALID_JSON", "PROVIDER_BLOCKED", "MODEL_NOT_FOUND"
+    "PROVIDER_INVALID_JSON", "PROVIDER_BLOCKED", "MODEL_NOT_FOUND", "STREAM_UNSUPPORTED"
   ]);
   const code = allowedCodes.has(error?.code) ? error.code : "PROVIDER_UNAVAILABLE";
   const messages = {
@@ -153,6 +162,7 @@ function sanitizeError(error) {
     SECRET_KEY_INVALID: "Provider credential encryption is incorrectly configured.",
     INVALID_PROVIDER_URL: "Provider endpoint must be a valid HTTP(S) base URL.",
     INSECURE_PROVIDER_URL: "HTTP provider endpoints require explicit local-provider opt-in.",
+    PROVIDER_HOST_NOT_SUPPORTED: "Only documented OpenAI-compatible provider hosts are allowed.",
     PRIVATE_PROVIDER_URL: "Private and loopback provider endpoints are disabled.",
     PROVIDER_DNS_FAILED: "Provider endpoint hostname could not be resolved.",
     PROVIDER_AUTH_FAILED: "The provider rejected the configured credential.",
@@ -163,7 +173,8 @@ function sanitizeError(error) {
     PROVIDER_INVALID_RESPONSE: "The provider returned an unsupported response.",
     PROVIDER_INVALID_JSON: "The provider response did not contain valid JSON.",
     PROVIDER_BLOCKED: "No eligible provider is configured for this task.",
-    MODEL_NOT_FOUND: "The selected model is not available from this provider."
+    MODEL_NOT_FOUND: "The selected model is not available from this provider.",
+    STREAM_UNSUPPORTED: "Streaming is not supported by this adapter in Increment 1."
   };
   return { code, message: messages[code], retryable: Boolean(error?.retryable) };
 }
@@ -244,6 +255,7 @@ class OpenAICompatibleAdapter {
     this.lookup = lookup;
     this.allowLocal = allowLocal;
     this.sleep = sleep || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.usage = { calls: 0, promptTokens: 0, completionTokens: 0 };
   }
 
   async request(endpoint, pathname, apiKey, options = {}) {
@@ -288,14 +300,28 @@ class OpenAICompatibleAdapter {
     const started = Date.now();
     try {
       await this.listModels(configuration);
-      return { ok: true, latencyMs: Date.now() - started, error: null };
+      return { ok: true, latency_ms: Date.now() - started, error: null };
     } catch (error) {
-      return { ok: false, latencyMs: Date.now() - started, error: sanitizeError(error) };
+      return { ok: false, latency_ms: Date.now() - started, error: sanitizeError(error) };
     }
   }
 
-  async complete(configuration, { model, messages, jsonSchema, signal, timeoutMs }) {
+  normalizeError(error) {
+    return sanitizeError(error);
+  }
+
+  usageStats() {
+    return { ...this.usage };
+  }
+
+  async complete(configuration, { model, messages, tools, jsonSchema, stream = false, signal, timeoutMs }) {
+    if (stream) throw new ProviderError("STREAM_UNSUPPORTED", "Streaming is not supported by this adapter in Increment 1.");
+    if (!Array.isArray(messages) || messages.length > 200
+      || (tools !== undefined && (!Array.isArray(tools) || tools.length > 32))) {
+      throw new ProviderError("PROVIDER_INVALID_RESPONSE", "Provider request does not match the supported input contract.");
+    }
     const requestBody = { model, messages };
+    if (tools?.length) requestBody.tools = tools;
     if (jsonSchema) {
       requestBody.response_format = {
         type: "json_schema",
@@ -335,15 +361,19 @@ class OpenAICompatibleAdapter {
       }
       validateProductDiscovery(json);
     }
-    return {
+    const completion = {
       text: choice.content,
       json,
       toolCalls: Array.isArray(choice.tool_calls) ? choice.tool_calls : [],
       usage: {
-        promptTokens: Number.isInteger(result.usage?.prompt_tokens) ? result.usage.prompt_tokens : null,
-        completionTokens: Number.isInteger(result.usage?.completion_tokens) ? result.usage.completion_tokens : null
+        prompt_tokens: Number.isInteger(result.usage?.prompt_tokens) ? result.usage.prompt_tokens : null,
+        completion_tokens: Number.isInteger(result.usage?.completion_tokens) ? result.usage.completion_tokens : null
       }
     };
+    this.usage.calls += 1;
+    this.usage.promptTokens += completion.usage.prompt_tokens || 0;
+    this.usage.completionTokens += completion.usage.completion_tokens || 0;
+    return completion;
   }
 
   httpError(status) {
@@ -472,10 +502,10 @@ class ProviderService {
       providerId: PROVIDER_ID,
       checkedAt: new Date().toISOString(),
       ok: health.ok,
-      latencyMs: health.latencyMs,
+      latencyMs: health.latency_ms,
       error: health.error?.code || null
     });
-    return health;
+    return { ...health, latencyMs: health.latency_ms };
   }
 
   async runProductDiscovery({ ownerId, projectId, task, input, signal }) {
@@ -548,14 +578,16 @@ class ProviderService {
         agentId: "requirements-intelligence",
         providerId: PROVIDER_ID,
         model: selected.model,
-        promptTokens: completion.usage.promptTokens,
-        completionTokens: completion.usage.completionTokens,
+        promptTokens: completion.usage.prompt_tokens,
+        completionTokens: completion.usage.completion_tokens,
         latencyMs: Date.now() - started,
         status: "IMPLEMENTED_UNVERIFIED",
         error: null
       });
       return {
         status: "IMPLEMENTED_UNVERIFIED",
+        providerId: PROVIDER_ID,
+        model: selected.model,
         findings: [completion.json],
         evidence: ["Provider response was parsed and validated against the Product Discovery output schema."],
         artifactReferences: [],

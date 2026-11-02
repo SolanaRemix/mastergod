@@ -207,7 +207,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           authentication: "ENABLED",
           gameStudio: "IMPLEMENTED_UNVERIFIED",
           gameStudioEngine: "HTML5 Canvas 2D local template",
-          aiProviders: "BLOCKED",
+          aiProviders: "CONFIGURABLE",
           productionReady: false,
           productionBlockers: [
             "SQLite is local embedded storage; managed multi-instance database operations and backups are not configured.",
@@ -321,7 +321,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
       }
 
       if (url.pathname === "/api/providers" || url.pathname.startsWith("/api/providers/")) {
-        if (!isSameOrigin(request) && request.method !== "GET") {
+        if (request.method !== "GET" && (!request.headers.origin || !isSameOrigin(request))) {
           return sendJson(response, 403, { error: "This request must come from this site." });
         }
         const session = await auth.getSession(getCookie(request, sessionCookieName));
@@ -347,6 +347,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           return sendJson(response, 200, { provider: saved, status: "IMPLEMENTED_UNVERIFIED" });
         }
         if (request.method === "DELETE" && action === "credential") {
+          await readJson(request);
           const deleted = await providerService.deleteCredential(request.authenticatedUser.id);
           return sendJson(response, 200, {
             provider: { provider_id: providerId, hasKey: false, updated_at: null },
@@ -371,7 +372,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           agents,
           operationalAgents: await store.listCoreAgents(),
           status: "IMPLEMENTED_UNVERIFIED",
-          note: "Local deterministic workers are available; provider-backed model calls are not configured."
+          note: "Local deterministic workers are available; Product Discovery requires a per-owner configured provider."
         });
       }
 
@@ -554,10 +555,14 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         if (request.method === "POST" && taskId && taskAction === "run") {
           const task = await orchestrator.executeTask(projectId, ownerId, taskId);
           if (!task) return sendJson(response, 404, { error: "Agent task not found." });
-          if (task.status === "BLOCKED") return sendJson(response, 409, {
-            task,
-            error: task.blockedReason || "This task has no registered agent worker."
-          });
+          if (task.status === "BLOCKED") {
+            const reason = task.blockedReason || "This task has no registered agent worker.";
+            const providerBlocked = task.agentId === "requirements-intelligence";
+            return sendJson(response, providerBlocked ? 503 : 409, {
+              ...(providerBlocked ? { status: "BLOCKED", reason } : { error: reason }),
+              task
+            });
+          }
           return sendJson(response, 200, { task });
         }
         return sendJson(response, 405, { error: "Agent task operation is not supported." });
@@ -982,14 +987,18 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
     } catch (error) {
       if (error instanceof ProviderError) {
         const safe = sanitizeError(error);
+        if (safe.code === "PROVIDER_BLOCKED" || safe.code === "SECRET_KEY_MISSING") {
+          return sendJson(response, 503, { status: "BLOCKED", reason: safe.message, code: safe.code });
+        }
         const status = ({
           SECRET_KEY_MISSING: 503,
           SECRET_KEY_INVALID: 503,
           INVALID_PROVIDER_URL: 400,
           INSECURE_PROVIDER_URL: 400,
+          PROVIDER_HOST_NOT_SUPPORTED: 400,
           PRIVATE_PROVIDER_URL: 400,
           PROVIDER_DNS_FAILED: 502,
-          PROVIDER_BLOCKED: 409,
+          PROVIDER_BLOCKED: 503,
           PROVIDER_AUTH_FAILED: 502,
           PROVIDER_RATE_LIMITED: 502,
           PROVIDER_UNAVAILABLE: 502,
