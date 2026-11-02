@@ -9,6 +9,7 @@ const projectCount = document.querySelector("#project-count");
 const errorMessage = document.querySelector("#error-message");
 const liveRegion = document.querySelector("#live-region");
 const healthLabel = document.querySelector("#health-label");
+const appVersion = document.querySelector("#app-version");
 const authSection = document.querySelector("#auth-section");
 const appWorkspace = document.querySelector("#app-workspace");
 const loginForm = document.querySelector("#login-form");
@@ -38,6 +39,44 @@ let draftProject = null;
 let activeGame = null;
 let currentGameSave = null;
 let latestPreviewState = null;
+const FLASH_GLOW_VARIANTS = new Set(["purple", "orange", "red", "green", "yellow", "cyan", "blue", "rainbow-subtle"]);
+const FLASH_GLOW_INTENSITIES = new Set(["subtle", "medium", "strong"]);
+const FLASH_GLOW_RADII = new Set(["sm", "md", "lg", "xl"]);
+
+function FlashGlowCard({
+  variant = "cyan",
+  intensity = "subtle",
+  animated = false,
+  hoverGlow = true,
+  selected = false,
+  interactive = false,
+  blur = true,
+  borderRadius = "md",
+  className = ""
+} = {}) {
+  const card = document.createElement("article");
+  card.classList.add("flash-glow-card");
+  String(className).split(/\s+/).filter((name) => /^[a-zA-Z0-9_-]+$/.test(name)).forEach((name) => card.classList.add(name));
+  card.dataset.glow = FLASH_GLOW_VARIANTS.has(variant) ? variant : "cyan";
+  card.dataset.intensity = FLASH_GLOW_INTENSITIES.has(intensity) ? intensity : "subtle";
+  card.dataset.animated = String(Boolean(animated));
+  card.dataset.hoverGlow = String(Boolean(hoverGlow));
+  card.dataset.selected = String(Boolean(selected));
+  card.dataset.interactive = String(Boolean(interactive));
+  card.dataset.blur = String(blur !== false);
+  if (typeof blur === "number" && Number.isFinite(blur)) {
+    card.style.setProperty("--card-blur", `${Math.min(24, Math.max(0, blur))}px`);
+  }
+  if (FLASH_GLOW_RADII.has(borderRadius)) {
+    card.dataset.radius = borderRadius;
+  } else if (typeof borderRadius === "number" && Number.isFinite(borderRadius) && borderRadius >= 0 && borderRadius <= 48) {
+    card.style.setProperty("--card-radius", `${borderRadius}px`);
+  } else if (typeof borderRadius === "string" && /^\d+(?:\.\d+)?(?:px|rem|em)$/.test(borderRadius)) {
+    card.style.setProperty("--card-radius", borderRadius);
+  }
+  if (interactive) card.tabIndex = 0;
+  return card;
+}
 
 function showError(message) {
   errorMessage.textContent = message;
@@ -70,9 +109,7 @@ function updateRequirementCount() {
 function renderRequirements(project) {
   requirementList.replaceChildren();
   project.requirements.forEach((requirement) => {
-    const item = document.createElement("article");
-    item.className = "requirement-item flash-glow-card";
-    item.dataset.glow = "purple";
+    const item = FlashGlowCard({ variant: "purple", className: "requirement-item" });
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
@@ -107,13 +144,19 @@ function renderRequirements(project) {
 function makeTag(text, className = "status-pill") {
   const tag = document.createElement("span");
   tag.className = className;
+  tag.classList.add("neon-badge");
+  if (/^(BLOCKED|QUEUED|RUNNING|RETRYING|COMPLETED|FAILED)$/i.test(text)) {
+    tag.classList.add(text.toLowerCase());
+  }
   tag.textContent = text.replaceAll("_", " ");
   return tag;
 }
 
 function renderProject(project) {
-  const card = document.createElement("article");
-  card.className = "project-card flash-glow-card";
+  const card = FlashGlowCard({
+    variant: project.status === "DRAFT" ? "purple" : "cyan",
+    className: "project-card"
+  });
 
   const header = document.createElement("div");
   header.className = "project-card-header";
@@ -241,7 +284,7 @@ function renderProject(project) {
 function taskGlow(status) {
   return ({
     QUEUED: "purple",
-    RUNNING: "orange",
+    RUNNING: "cyan",
     RETRYING: "yellow",
     COMPLETED: "green",
     FAILED: "red",
@@ -252,9 +295,13 @@ function taskGlow(status) {
 function renderAgentTasks(project, container, tasks) {
   container.replaceChildren();
   tasks.forEach((task) => {
-    const card = document.createElement("article");
-    card.className = "agent-task-card flash-glow-card";
-    card.dataset.glow = taskGlow(task.status);
+    const card = FlashGlowCard({
+      variant: taskGlow(task.status),
+      intensity: task.status === "RUNNING" ? "strong" : "subtle",
+      animated: task.status === "RUNNING",
+      selected: task.status === "RUNNING",
+      className: "agent-task-card"
+    });
     card.dataset.status = task.status.toLowerCase();
     const header = document.createElement("div");
     header.className = "agent-task-header";
@@ -304,6 +351,7 @@ function addButton(label, className = "secondary-button") {
   const button = document.createElement("button");
   button.type = "button";
   button.className = className;
+  if (className.split(/\s+/).includes("primary-button")) button.classList.add("neon-button");
   button.textContent = label;
   return button;
 }
@@ -354,7 +402,7 @@ async function renderArtifactManager(project, container, selectedPath) {
     const columns = document.createElement("div");
     columns.className = "artifact-columns";
     const treePanel = document.createElement("div");
-    treePanel.className = "artifact-tree";
+    treePanel.className = "artifact-tree glass-card";
     const treeHeading = document.createElement("h5");
     treeHeading.textContent = "Files";
     treePanel.append(treeHeading);
@@ -414,7 +462,7 @@ async function renderArtifactManager(project, container, selectedPath) {
       state.className = "helper-text";
       state.textContent = `Version ${artifact.version} · ${artifact.sizeBytes} bytes · ${artifact.checksum.slice(0, 12)}… · ${artifact.status.replaceAll("_", " ")}`;
       const editor = document.createElement("textarea");
-      editor.className = "artifact-editor-input";
+      editor.className = "artifact-editor-input glass-textarea";
       editor.setAttribute("aria-label", `Edit ${artifact.path}`);
       editor.spellcheck = false;
       editor.value = artifact.contents;
@@ -490,6 +538,7 @@ async function renderArtifactManager(project, container, selectedPath) {
       versionLabel.htmlFor = `artifact-version-${project.id}`;
       const versions = document.createElement("select");
       versions.id = `artifact-version-${project.id}`;
+      versions.className = "glass-select";
       history.history.forEach((version) => {
         const option = document.createElement("option");
         option.value = String(version.version);
@@ -552,8 +601,7 @@ function renderGames(games) {
     return;
   }
   games.forEach((game) => {
-    const card = document.createElement("article");
-    card.className = "project-card";
+    const card = FlashGlowCard({ variant: "orange", className: "project-card" });
     const header = document.createElement("div");
     header.className = "project-card-header";
     const title = document.createElement("h3");
@@ -881,6 +929,7 @@ approveButton.addEventListener("click", async () => {
 async function initialize() {
   try {
     const health = await api("/api/health");
+    if (typeof health.version === "string") appVersion.textContent = `V${health.version}`;
     healthLabel.textContent = `Local workspace · AI providers ${health.aiProviders.toLowerCase()}`;
     try {
       const { user } = await api("/api/auth/me");

@@ -4,16 +4,17 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#090d18">
-    <title>Master GODS — Build your idea</title>
+    <title>Master GODS V10.3.0 — Build your idea</title>
     <link rel="stylesheet" href="/styles.css">
     <script src="/app.js" defer></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
-    <header class="topbar">
+    <header class="topbar glass-header">
       <a class="brand" href="/" aria-label="Master GODS home">
         <span class="brand-mark" aria-hidden="true">G</span>
         <span>MASTER <strong>GODS</strong></span>
+        <span id="app-version" class="version-pill">V10.3.0</span>
       </a>
       <div class="topbar-actions">
         <div class="topbar-meta"><span class="status-dot"></span><span id="health-label">Checking local workspace…</span></div>
@@ -40,17 +41,17 @@
           <form id="login-form" class="auth-form flash-glow-card" data-glow="purple">
             <h3>Welcome back</h3>
             <label for="login-email">Email address</label>
-            <input id="login-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+            <input id="login-email" class="glass-input" name="email" type="email" autocomplete="email" maxlength="254" required>
             <label for="login-password">Password</label>
-            <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
+            <input id="login-password" class="glass-input" name="password" type="password" autocomplete="current-password" maxlength="256" required>
             <button class="primary-button" type="submit">Sign in</button>
           </form>
           <form id="register-form" class="auth-form flash-glow-card" data-glow="purple">
             <h3>New to GODS?</h3>
             <label for="register-email">Email address</label>
-            <input id="register-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+            <input id="register-email" class="glass-input" name="email" type="email" autocomplete="email" maxlength="254" required>
             <label for="register-password">Create a password</label>
-            <input id="register-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+            <input id="register-password" class="glass-input" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
             <p class="helper-text">Use at least 12 characters. Password recovery and email verification are not available yet.</p>
             <button class="primary-button" type="submit">Create account</button>
           </form>
@@ -68,7 +69,7 @@
         </div>
         <form id="prompt-form">
           <label class="sr-only" for="prompt">Describe the application you want to build</label>
-          <textarea id="prompt" name="prompt" minlength="10" maxlength="10000" required placeholder="For example: I need a simple booking app for my cleaning business. Customers should choose a service and time, and I want to manage bookings from one place."></textarea>
+          <textarea id="prompt" class="glass-textarea" name="prompt" minlength="10" maxlength="10000" required placeholder="For example: I need a simple booking app for my cleaning business. Customers should choose a service and time, and I want to manage bookings from one place."></textarea>
           <div class="form-footer">
             <span class="helper-text">Your words stay in this local workspace.</span>
             <button class="primary-button" type="submit"><span>Make my project plan</span><span aria-hidden="true">→</span></button>
@@ -96,13 +97,13 @@
         <div class="step-heading">
           <span class="step-number">🎮</span>
           <div>
-            <h2 id="game-studio-heading">GODS AI Game Studio</h2>
+            <h2 id="game-studio-heading">GODS Game Studio</h2>
             <p>Describe a game in your own words. GODS will make a private, playable 2D Canvas game you can refine and save.</p>
           </div>
         </div>
         <form id="game-form">
           <label class="sr-only" for="game-prompt">Describe the game you want to make</label>
-          <textarea id="game-prompt" name="prompt" minlength="10" maxlength="5000" required placeholder="For example: Make a neon space game where I steer around and collect glowing energy orbs."></textarea>
+          <textarea id="game-prompt" class="glass-textarea" name="prompt" minlength="10" maxlength="5000" required placeholder="For example: Make a neon space game where I steer around and collect glowing energy orbs."></textarea>
           <div class="form-footer">
             <span class="helper-text">Runs locally in a restricted preview. Generation uses a deterministic template, not an AI provider.</span>
             <button class="primary-button" type="submit">Create a playable game <span aria-hidden="true">→</span></button>
@@ -122,7 +123,7 @@
             <div class="game-preview-panel flash-glow-card" data-glow="blue">
               <div class="game-preview-controls">
                 <label for="game-version">Version</label>
-                <select id="game-version"></select>
+                <select id="game-version" class="glass-select"></select>
                 <button id="restart-game" class="secondary-button" type="button">Restart</button>
               </div>
               <iframe id="game-preview" title="Restricted game preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
@@ -137,7 +138,7 @@
           <form id="game-refine-form" class="game-refine-form flash-glow-card" data-glow="orange">
             <label for="game-refinement">Refine your game</label>
             <div class="game-refine-row">
-              <input id="game-refinement" name="instruction" maxlength="500" required placeholder="Try: Make it easier">
+              <input id="game-refinement" class="glass-input" name="instruction" maxlength="500" required placeholder="Try: Make it easier">
               <button class="primary-button" type="submit">Save a new version</button>
             </div>
             <p class="helper-text">Supported edits change the difficulty. Older versions stay available and restore as a new version.</p>
@@ -175,6 +176,6 @@
       <div id="live-region" class="sr-only" aria-live="polite"></div>
       <p id="error-message" class="error-message hidden" role="alert"></p>
     </main>
-    <footer><span>Master GODS · Beginner-first project planning and game creation</span><span>Local preview · Not production ready</span></footer>
+    <footer><span>Master GODS V10.3.0 · Beginner-first project planning and game creation</span><span>Local preview · Not production ready</span></footer>
   </body>
 </html>

@@ -112,6 +112,7 @@ test("health reports the initialized SQLite persistence adapter", async () => {
   assert.equal(response.status, 200);
   const health = await response.json();
   assert.equal(health.persistence, "sqlite");
+  assert.equal(health.version, require("../package.json").version);
   assert.equal(health.authentication, "ENABLED");
   assert.equal(health.productionReady, false);
 });
@@ -522,6 +523,9 @@ test("blueprint generation persists an agent graph and artifact files remain own
   });
   assert.equal(noWorker.response.status, 409);
   assert.equal(noWorker.body.task.status, "BLOCKED");
+  const taskEvents = await json(`/api/projects/${truckingProject.id}/tasks/${encodeURIComponent(generated.body.tasks[0].taskId)}/events`);
+  assert.equal(taskEvents.response.status, 200);
+  assert.ok(taskEvents.body.events.length > 0);
 
   const ownerTree = await json(`/api/projects/${truckingProject.id}/artifacts`);
   assert.equal(ownerTree.response.status, 200);

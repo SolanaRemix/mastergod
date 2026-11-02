@@ -1,6 +1,6 @@
-# Master GODS
+# Master GODS V10.3.0
 
-A dependency-free, local-first GODS starter with project planning, authenticated ownership, SQLite persistence, deterministic game and scaffold prototypes, and an evidence-aware artifact file manager. It does not claim that provider-backed agent orchestration or the full production software factory exists.
+A dependency-free, local-first project planner with authenticated ownership, SQLite persistence, a blueprint-derived persistent agent task graph, a deterministic 2D game template, and an evidence-aware artifact file manager. It does not claim that provider-backed agent orchestration or the full production software factory exists.
 
 ## Run locally
 
@@ -19,15 +19,19 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Create an account with a pa
 3. Approve or reject each requirement.
 4. Download the persisted `gods.blueprint.yaml` for the project.
 5. Inspect the task contracts. Implementation tasks remain visibly `BLOCKED` because this repository has no configured AI provider or secure worker.
-6. For an approved plan, optionally generate a deterministic, request-derived starter scaffold and manage its saved files from the project card.
+6. For an approved plan, create and review a deterministic, project-type-specific agent task graph. Tasks remain `BLOCKED` until verified worker handlers are configured; graph planning does not generate source code.
 
 Project APIs require an authenticated account and only return projects owned by that account. New accounts are regular users; matching an email address never grants administrator rights.
 
 ### Project artifact file manager
 
-The starter generator uses local keyword matching against the saved request and approved requirements; it is not an AI model or an autonomous agent. It produces a small Node.js prototype with request-specific feature modules, then persists file contents, checksums, versions, and audit entries in SQLite. The file manager supports read, create, edit, copy, rename, delete, download, folder operations, version history, restore, and JSON project export. Writes use optimistic version checks and are read back from SQLite before success is returned. The endpoints are owner-scoped under `/api/projects/:id/artifacts`; state-changing requests require same-origin JSON.
+`ProjectGenerator` validates that a saved, approved blueprint exactly matches its approved requirements and persists a deterministic task graph selected from the project type. `AgentOrchestrator` records guarded task-state transitions and event history in SQLite. No worker is configured in this repository, so generation reports `IMPLEMENTED_UNVERIFIED`/`BLOCKED` and produces no source files. The former static scaffold endpoint is retired; existing saved artifacts are preserved and remain manageable.
 
-Generated prototypes remain **IMPLEMENTED_UNVERIFIED**. Their example feature records are in-memory, and the scaffold does not include authentication, durable generated-app data storage, provider-backed code execution, deployment, or production verification. It must not be presented or deployed as a complete application. Core project file CRUD, ownership isolation, version conflicts, history/restore, safe paths, and exports have automated coverage; full browser visual/accessibility testing and generated application acceptance testing remain incomplete.
+The file manager supports read, create, edit, copy, rename, delete, download, folder operations, version history, restore, and JSON project export. Writes use optimistic version checks and are read back from SQLite before success is returned. The endpoints are owner-scoped under `/api/projects/:id/artifacts`; state-changing requests require same-origin JSON. Generated application acceptance testing is not applicable until a real worker exists.
+
+### UI design system
+
+The existing builder, requirement review, project and game cards, task panels, and artifact editor share dark glass/neon design tokens and the `FlashGlowCard` DOM helper. Its CSS variants are purple, orange, red, green, yellow, cyan, blue, and `rainbow-subtle`; animation and blur are optional and reduced-motion is respected. This is a skin for the actual single-page app, not an implementation of absent chat, model, provider, billing, community, or asset-studio pages.
 
 ### Provision the super administrator
 
@@ -51,7 +55,11 @@ The browser does not call an AI service. Discovery is deterministic text splitti
 - `GET /api/projects/:id` — retrieve a project.
 - `POST /api/projects/:id/approve` — approve/edit each requirement.
 - `GET /api/projects/:id/blueprint` — download the project blueprint.
-- `POST /api/projects/:id/artifacts/generate` — create request-specific deterministic prototype files once for an approved project.
+- `POST /api/projects/:id/generate` — validate an approved blueprint and persist its deterministic agent task graph; no source is generated without workers.
+- `GET /api/projects/:id/tasks` — list persisted, owner-scoped task records.
+- `GET /api/projects/:id/tasks/:taskId/events` — read a task's persisted state-transition history.
+- `POST /api/projects/:id/tasks/:taskId/run` — ask a registered worker to run a task; returns `409 BLOCKED` when no worker is registered.
+- `POST /api/projects/:id/artifacts/generate` — retired static generator (`410 BLOCKED`); use the file manager for explicit user-managed artifacts.
 - `GET /api/projects/:id/artifacts` — list owned files and folders.
 - `GET|PUT|DELETE /api/projects/:id/artifacts/file?path=...` — read, save with `expectedVersion`, download with `download=1`, or delete with the current `version`.
 - `POST /api/projects/:id/artifacts/files` — create a file.

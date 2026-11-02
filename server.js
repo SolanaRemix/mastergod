@@ -1,6 +1,7 @@
 const http = require("node:http");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { version } = require("./package.json");
 const { approveRequirements, createDraft, serializeBlueprint } = require("./src/blueprint");
 const { agents } = require("./src/agents");
 const { AuthService } = require("./src/auth");
@@ -188,6 +189,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         return sendJson(response, 200, {
           status: persistenceReady ? "VERIFIED" : "FAILED",
           application: "available",
+          version,
           persistence: persistenceReady ? "sqlite" : "FAILED",
           authentication: "ENABLED",
           gameStudio: "IMPLEMENTED_UNVERIFIED",
@@ -465,7 +467,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         return sendJson(response, 201, { project });
       }
 
-      const taskRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/tasks(?:\/([a-f0-9-]+)(?:\/(events|run))?)?$/);
+      const taskRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/tasks(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(events|run))?)?$/);
       if (taskRoute) {
         const projectId = taskRoute[1];
         const taskId = taskRoute[2];
