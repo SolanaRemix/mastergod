@@ -4,9 +4,11 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const vm = require("node:vm");
 const { after, before, test } = require("node:test");
 const { approveRequirements, buildTaskGraph, createDraft, discoverRequirements } = require("../src/blueprint");
 const { agents } = require("../src/agents");
+const { generateProjectArtifacts } = require("../src/artifacts");
 const { createServer } = require("../server");
 
 let directory;
@@ -94,6 +96,19 @@ test("approval rejects requirement edits that normalize to empty text", () => {
     text: "- *",
     approved: true
   }]), /non-empty text/);
+});
+
+test("request-specific scaffolds use only user-approved requirements", () => {
+  const project = createDraft("Drivers need schedules. Admins need invoices.");
+  approveRequirements(project, project.requirements.map((requirement) => ({
+    id: requirement.id,
+    text: requirement.text,
+    approved: requirement.text.startsWith("Drivers")
+  })));
+  const generated = generateProjectArtifacts(project);
+  assert.ok(generated.some((file) => file.path === "src/features/drivers.js"));
+  assert.ok(!generated.some((file) => file.path === "src/features/invoices.js"));
+  assert.ok(!generated.some((file) => file.path === "src/features/admin.js"));
 });
 
 test("agent catalog declares complete contracts without overstating provider execution", () => {
@@ -483,15 +498,24 @@ test("request-specific artifacts persist, enforce ownership and support versione
       body: JSON.stringify({ prompt: "Build a project that needs approval before files." })
     });
     return (await response.json()).project;
-  })()).id}/artifacts/generate`, { method: "POST", headers });
+  })()).id}/artifacts/generate`, { method: "POST", headers, body: JSON.stringify({}) });
   assert.equal(unapproved.status, 409);
 
-  const generated = await json(`/api/projects/${truckingProject.id}/artifacts/generate`, { method: "POST" });
+  const generated = await json(`/api/projects/${truckingProject.id}/artifacts/generate`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
   assert.equal(generated.response.status, 201);
   assert.equal(generated.body.status, "IMPLEMENTED_UNVERIFIED");
   assert.match(generated.body.execution, /no AI agent or provider ran/);
   assert.ok(generated.body.files.some((file) => file.path === "src/features/drivers.js"));
-  const alternate = await json(`/api/projects/${bookingsProject.id}/artifacts/generate`, { method: "POST" });
+  for (const artifact of generated.body.files.filter((file) => file.language === "javascript")) {
+    assert.doesNotThrow(() => new vm.Script(artifact.contents, { filename: artifact.path }));
+  }
+  const alternate = await json(`/api/projects/${bookingsProject.id}/artifacts/generate`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
   assert.ok(alternate.body.files.some((file) => file.path === "src/features/bookings.js"));
   assert.ok(!alternate.body.files.some((file) => file.path === "src/features/drivers.js"));
 
@@ -512,6 +536,21 @@ test("request-specific artifacts persist, enforce ownership and support versione
   assert.equal(created.body.artifact.version, 1);
   const readBack = await json(`/api/projects/${truckingProject.id}/artifacts/file?path=docs%2Fnotes.md`);
   assert.equal(readBack.body.artifact.contents, "Original text");
+  const blocker = await json(`/api/projects/${truckingProject.id}/artifacts/files`, {
+    method: "POST",
+    body: JSON.stringify({ path: "occupied", contents: "file", language: "text" })
+  });
+  assert.equal(blocker.response.status, 201);
+  const collidingCopy = await json(`/api/projects/${truckingProject.id}/artifacts/duplicate`, {
+    method: "POST",
+    body: JSON.stringify({ fromPath: "docs/notes.md", toPath: "occupied/child.md" })
+  });
+  assert.equal(collidingCopy.response.status, 409);
+  const secretPath = await json(`/api/projects/${truckingProject.id}/artifacts/files`, {
+    method: "POST",
+    body: JSON.stringify({ path: ".env", contents: "KEY=value", language: "text" })
+  });
+  assert.equal(secretPath.response.status, 400);
   const saved = await json(`/api/projects/${truckingProject.id}/artifacts/file?path=docs%2Fnotes.md`, {
     method: "PUT",
     body: JSON.stringify({ contents: "Updated text", expectedVersion: 1 })
@@ -568,6 +607,11 @@ test("request-specific artifacts persist, enforce ownership and support versione
     body: JSON.stringify({ fromPath: "scratch", toPath: "archive" })
   });
   assert.equal(folderRename.response.status, 200);
+  const folderParentCollision = await json(`/api/projects/${truckingProject.id}/artifacts/directories`, {
+    method: "PATCH",
+    body: JSON.stringify({ fromPath: "docs", toPath: "occupied/subfolder" })
+  });
+  assert.equal(folderParentCollision.response.status, 409);
   const folderDelete = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts/directories?path=archive`, {
     method: "DELETE",
     headers

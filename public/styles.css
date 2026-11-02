@@ -172,6 +172,21 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 22px
   footer { text-align: center; }
 }
 
+@media (max-width: 360px) {
+  .topbar { padding-inline: 14px; }
+  .topbar-actions { gap: 6px; }
+  .topbar-meta { gap: 6px; font-size: 9px; }
+  .secondary-button { padding-inline: 9px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+.glass-panel.flash-glow-card, .project-card.flash-glow-card, .auth-form.flash-glow-card,
+.requirement-item.flash-glow-card, .game-preview-panel.flash-glow-card,
+.game-refine-form.flash-glow-card, .artifact-workspace.flash-glow-card {
+  border-color: color-mix(in srgb, var(--glow-color) 25%, var(--glass-border));
+  background: linear-gradient(145deg, rgba(20, 28, 46, .88), var(--glass-surface));
+  backdrop-filter: blur(14px);
 }

@@ -71,7 +71,8 @@ function renderRequirements(project) {
   requirementList.replaceChildren();
   project.requirements.forEach((requirement) => {
     const item = document.createElement("article");
-    item.className = "requirement-item";
+    item.className = "requirement-item flash-glow-card";
+    item.dataset.glow = "purple";
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
@@ -191,7 +192,10 @@ function renderProject(project) {
     generateButton.addEventListener("click", async () => {
       generateButton.disabled = true;
       try {
-        const result = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/generate`, { method: "POST" });
+        const result = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/generate`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
         artifactDescription.textContent = `${result.files.length} files generated and read back from local storage. Status: IMPLEMENTED_UNVERIFIED. ${result.execution}.`;
         generateButton.classList.add("hidden");
         artifactToggle.classList.remove("hidden");

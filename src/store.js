@@ -644,6 +644,18 @@ class PersistenceStore {
       const destinationFor = (oldPath) => `${toPath}${oldPath.slice(fromPath.length)}`;
       const movedDirectories = new Set(dirs);
       const movedFiles = new Set(files);
+      const targetParents = toPath.split("/").slice(0, -1);
+      for (let index = 1; index <= targetParents.length; index += 1) {
+        const parent = targetParents.slice(0, index).join("/");
+        const parentFile = this.database.prepare(`
+          SELECT path FROM project_artifacts WHERE project_id = ? AND path = ?
+        `).get(projectId, parent);
+        if (parentFile && !movedFiles.has(parentFile.path)) {
+          const error = new Error("A file already occupies a parent folder path.");
+          error.code = "PATH_CONFLICT";
+          throw error;
+        }
+      }
       for (const target of dirs.map(destinationFor)) {
         if (this.database.prepare(`
           SELECT 1 FROM project_artifact_directories WHERE project_id = ? AND path = ?

@@ -470,6 +470,10 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           return sendJson(response, 429, { error: "File activity limit reached. Try again later." }, { "retry-after": "3600" });
         }
         if (request.method === "POST" && action === "generate") {
+          const body = await readJson(request);
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            return sendJson(response, 400, { error: "Generation requires a JSON object." });
+          }
           const project = await store.get(projectId);
           if (!project || project.ownerId !== ownerId) return sendJson(response, 404, { error: "Project not found." });
           const artifacts = await store.generateArtifacts(projectId, ownerId, generateProjectArtifacts(project));
@@ -503,7 +507,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         if (request.method === "POST" && action === "files") {
           const body = await readJson(request, 300 * 1024);
           if (!body || typeof body.path !== "string" || typeof body.contents !== "string"
-            || body.contents.length > 256 * 1024) {
+            || Buffer.byteLength(body.contents, "utf8") > 256 * 1024) {
             return sendJson(response, 400, { error: "Provide a project-relative path and text contents (up to 256 KiB)." });
           }
           const language = typeof body.language === "string" ? body.language : "text";
@@ -515,7 +519,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           const body = await readJson(request, 300 * 1024);
           if (!url.searchParams.has("path") || !body || typeof body.contents !== "string"
             || !Number.isInteger(body.expectedVersion) || body.expectedVersion < 1
-            || body.contents.length > 256 * 1024) {
+            || Buffer.byteLength(body.contents, "utf8") > 256 * 1024) {
             return sendJson(response, 400, { error: "Provide a file path, contents, and the version you opened." });
           }
           const artifact = await store.writeArtifact(projectId, ownerId, url.searchParams.get("path"),

@@ -1,6 +1,6 @@
 # Master GODS
 
-A dependency-free, local-first starting point for the GODS project factory. This repository did not contain an application, framework, persistence layer, or tests, so this implementation deliberately starts with a small, runnable project-planning workflow rather than claiming the full v9 production factory exists.
+A dependency-free, local-first GODS starter with project planning, authenticated ownership, SQLite persistence, deterministic game and scaffold prototypes, and an evidence-aware artifact file manager. It does not claim that provider-backed agent orchestration or the full production software factory exists.
 
 ## Run locally
 
@@ -10,7 +10,7 @@ Requires Node.js 22.13 or later. No package installation is needed; the applicat
 npm start
 ```
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Create an account with a password of at least 12 characters, then sign in to a private workspace. Accounts, sessions, and projects are stored transactionally in `data/gods.sqlite` (or under `GODS_DATA_DIR`). The server binds to `127.0.0.1` by default. Passwords are hashed with Node.js `scrypt`; sessions use random opaque tokens in `HttpOnly`, `SameSite=Strict` cookies and are stored by SHA-256 hash. Production mode also sets `Secure` and uses a `__Host-` cookie.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Create an account with a password of at least 12 characters, then sign in to a private workspace. Accounts, sessions, projects, and generated project artifacts are stored transactionally in `data/gods.sqlite` (or under `GODS_DATA_DIR`). The server binds to `127.0.0.1` by default. Passwords are hashed with Node.js `scrypt`; sessions use random opaque tokens in `HttpOnly`, `SameSite=Strict` cookies and are stored by SHA-256 hash. Production mode also sets `Secure` and uses a `__Host-` cookie.
 
 ## Current workflow
 
@@ -19,8 +19,15 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Create an account with a pa
 3. Approve or reject each requirement.
 4. Download the persisted `gods.blueprint.yaml` for the project.
 5. Inspect the task contracts. Implementation tasks remain visibly `BLOCKED` because this repository has no configured AI provider or secure worker.
+6. For an approved plan, optionally generate a deterministic, request-derived starter scaffold and manage its saved files from the project card.
 
 Project APIs require an authenticated account and only return projects owned by that account. New accounts are regular users; matching an email address never grants administrator rights.
+
+### Project artifact file manager
+
+The starter generator uses local keyword matching against the saved request and approved requirements; it is not an AI model or an autonomous agent. It produces a small Node.js prototype with request-specific feature modules, then persists file contents, checksums, versions, and audit entries in SQLite. The file manager supports read, create, edit, copy, rename, delete, download, folder operations, version history, restore, and JSON project export. Writes use optimistic version checks and are read back from SQLite before success is returned. The endpoints are owner-scoped under `/api/projects/:id/artifacts`; state-changing requests require same-origin JSON.
+
+Generated prototypes remain **IMPLEMENTED_UNVERIFIED**. Their example feature records are in-memory, and the scaffold does not include authentication, durable generated-app data storage, provider-backed code execution, deployment, or production verification. It must not be presented or deployed as a complete application. Core project file CRUD, ownership isolation, version conflicts, history/restore, safe paths, and exports have automated coverage; full browser visual/accessibility testing and generated application acceptance testing remain incomplete.
 
 ### Provision the super administrator
 
@@ -44,6 +51,16 @@ The browser does not call an AI service. Discovery is deterministic text splitti
 - `GET /api/projects/:id` — retrieve a project.
 - `POST /api/projects/:id/approve` — approve/edit each requirement.
 - `GET /api/projects/:id/blueprint` — download the project blueprint.
+- `POST /api/projects/:id/artifacts/generate` — create request-specific deterministic prototype files once for an approved project.
+- `GET /api/projects/:id/artifacts` — list owned files and folders.
+- `GET|PUT|DELETE /api/projects/:id/artifacts/file?path=...` — read, save with `expectedVersion`, download with `download=1`, or delete with the current `version`.
+- `POST /api/projects/:id/artifacts/files` — create a file.
+- `POST /api/projects/:id/artifacts/rename` — rename a file with its current version or a folder with `{ "kind": "directory" }`.
+- `POST /api/projects/:id/artifacts/duplicate` — copy an owned file.
+- `POST|PATCH|DELETE /api/projects/:id/artifacts/directories` — create, rename, or recursively delete a folder.
+- `GET /api/projects/:id/artifacts/history?path=...` and `POST /api/projects/:id/artifacts/restore` — inspect history and restore a prior version as a new version.
+- `GET /api/projects/:id/artifacts/audit` — read recent artifact activity.
+- `GET /api/projects/:id/artifacts/export` — download a size-limited JSON project export.
 - `GET /api/games` — list private game projects owned by the signed-in user.
 - `POST /api/games` — create a private 2D game from `{ "prompt": "..." }`.
 - `GET /api/games/:id` — retrieve the game specification and version history.

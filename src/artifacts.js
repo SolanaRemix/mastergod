@@ -55,7 +55,10 @@ function isProtectedArtifactPath(value) {
 }
 
 function featureListForProject(project) {
-  const prompt = project.originalRequest;
+  const prompt = project.requirements
+    .filter((requirement) => requirement.decision === "APPROVED")
+    .map((requirement) => requirement.text)
+    .join(" ");
   const requestedFeatures = FEATURE_CATALOG.filter((feature) => feature.pattern.test(prompt));
   if (requestedFeatures.length) return requestedFeatures;
   return [
