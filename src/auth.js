@@ -92,7 +92,16 @@ class AuthService {
       return null;
     }
     if (!await verifyPassword(password, user.salt, user.passwordHash)) return null;
-    return publicUser(user);
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+    const session = {
+      tokenHash: hashSessionToken(token),
+      userId: user.id,
+      expiresAt,
+      createdAt: new Date().toISOString()
+    };
+    const created = await this.store.createSessionIfPasswordMatches(user, session);
+    return created ? { user: publicUser(user), session: { token, expiresAt } } : null;
   }
 
   async createSession(userId) {
@@ -105,6 +114,35 @@ class AuthService {
       createdAt: new Date().toISOString()
     });
     return { token, expiresAt };
+  }
+
+  async requestPasswordReset(emailInput) {
+    if (typeof emailInput !== "string" || emailInput.length > 254) return null;
+    const user = await this.store.findUserByEmail(normalizeEmail(emailInput));
+    if (!user) return null;
+
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    await this.store.createPasswordReset({
+      tokenHash: hashSessionToken(token),
+      userId: user.id,
+      expiresAt,
+      createdAt: new Date().toISOString()
+    });
+    return token;
+  }
+
+  async resetPassword(token, password) {
+    if (
+      typeof token !== "string"
+      || token.length !== 43
+      || typeof password !== "string"
+      || password.length < 12
+      || Buffer.byteLength(password, "utf8") > 256
+    ) return false;
+
+    const credentials = await hashPassword(password);
+    return this.store.consumePasswordReset(hashSessionToken(token), credentials);
   }
 
   async getSession(token) {

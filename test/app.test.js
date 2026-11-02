@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { randomBytes } = require("node:crypto");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -11,12 +12,14 @@ let directory;
 let server;
 let baseUrl;
 let projectStore;
+let authStore;
 
 before(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), "gods-test-"));
   const application = createServer({ dataDir: directory });
   server = application.server;
   projectStore = application.store;
+  authStore = application.authStore;
   await Promise.all([application.store.initialize(), application.authStore.initialize()]);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -151,6 +154,50 @@ test("login rejects bad credentials and logout revokes the session", async () =>
   assert.equal((await fetch(`${baseUrl}/api/auth/me`, { headers: { cookie: loginCookie } })).status, 401);
 });
 
+test("password reset tokens are single-use, expire, and revoke prior sessions", async () => {
+  const account = await registerAccount("recovery@example.com");
+  const { AuthService } = require("../src/auth");
+  const auth = new AuthService(authStore);
+  const token = await auth.requestPasswordReset("RECOVERY@example.com");
+  assert.equal(typeof token, "string");
+  assert.equal(await auth.resetPassword(token, "new-secure-password-456!"), true);
+  assert.equal(await auth.resetPassword(token, "another-secure-password-789!"), false);
+  assert.equal(await auth.getSession(account.cookie.split("=")[1]), null);
+  assert.equal(await auth.login("recovery@example.com", "A-long-test-password-123!"), null);
+  assert.ok(await auth.login("recovery@example.com", "new-secure-password-456!"));
+  assert.equal(await auth.resetPassword(token, "short"), false);
+
+  const expiredToken = randomBytes(32).toString("base64url");
+  await authStore.createPasswordReset({
+    tokenHash: require("../src/auth").hashSessionToken(expiredToken),
+    userId: account.result.user.id,
+    expiresAt: new Date(Date.now() - 1000).toISOString(),
+    createdAt: new Date(Date.now() - 60_000).toISOString()
+  });
+  assert.equal(await auth.resetPassword(expiredToken, "expired-reset-password-123!"), false);
+});
+
+test("login refuses to issue a session if the password changes during verification", async () => {
+  const { AuthService, hashPassword } = require("../src/auth");
+  const credentials = await hashPassword("concurrent-login-password");
+  const store = {
+    async findUserByEmail() {
+      return {
+        id: "race-user",
+        email: "race@example.com",
+        role: "user",
+        createdAt: new Date().toISOString(),
+        ...credentials
+      };
+    },
+    async createSessionIfPasswordMatches() {
+      return false;
+    }
+  };
+  const login = await new AuthService(store).login("race@example.com", "concurrent-login-password");
+  assert.equal(login, null);
+});
+
 test("authentication enforces password policy, unique email, and same-origin mutations", async () => {
   const shortPassword = await fetch(`${baseUrl}/api/auth/register`, {
     method: "POST",
@@ -170,6 +217,14 @@ test("authentication enforces password policy, unique email, and same-origin mut
     body: JSON.stringify({ email: "duplicate@example.com", password: "A-long-test-password-123!" })
   });
   assert.equal(crossOrigin.status, 403);
+
+  const recovery = await fetch(`${baseUrl}/api/auth/request-password-reset`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: baseUrl },
+    body: JSON.stringify({ email: "duplicate@example.com" })
+  });
+  assert.equal(recovery.status, 503);
+  assert.equal((await recovery.json()).status, "BLOCKED");
 });
 
 test("project creation, approval, blueprint download, and persistence work end to end", async () => {

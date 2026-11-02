@@ -170,7 +170,13 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         return sendJson(response, 200, { user: session.user, expiresAt: session.expiresAt });
       }
 
-      if (request.method === "POST" && ["/api/auth/register", "/api/auth/login", "/api/auth/logout"].includes(url.pathname)) {
+      if (request.method === "POST" && [
+        "/api/auth/register",
+        "/api/auth/login",
+        "/api/auth/logout",
+        "/api/auth/request-password-reset",
+        "/api/auth/reset-password"
+      ].includes(url.pathname)) {
         if (!isSameOrigin(request)) return sendJson(response, 403, { error: "This request must come from this site." });
         const source = request.socket.remoteAddress || "unknown";
         const limiter = url.pathname.endsWith("/register") ? allowRegistration : allowLogin;
@@ -191,19 +197,40 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           return sendJson(response, 400, { error: "Provide an email address and password." });
         }
 
+        if (url.pathname === "/api/auth/request-password-reset") {
+          return sendJson(response, 503, {
+            status: "BLOCKED",
+            error: "Password recovery is unavailable because email delivery is not configured."
+          });
+        }
+
+        if (url.pathname === "/api/auth/reset-password") {
+          if (typeof body.token !== "string" || typeof body.password !== "string") {
+            return sendJson(response, 400, { error: "Provide a reset token and a new password." });
+          }
+          const reset = await auth.resetPassword(body.token, body.password);
+          if (!reset) return sendJson(response, 400, { error: "This reset link is invalid or expired." });
+          return sendJson(response, 200, { status: "password_updated" }, {
+            "set-cookie": makeClearSessionCookie(secureCookies)
+          });
+        }
+
         let user;
+        let session;
         if (url.pathname.endsWith("/register")) {
           try {
             user = await auth.register(body.email, body.password);
           } catch (error) {
             return sendJson(response, error.message.includes("already exists") ? 409 : 400, { error: error.message });
           }
+          session = await auth.createSession(user.id);
         } else {
-          user = await auth.login(body.email, body.password);
-          if (!user) return sendJson(response, 401, { error: "Email or password is incorrect." });
+          const login = await auth.login(body.email, body.password);
+          if (!login) return sendJson(response, 401, { error: "Email or password is incorrect." });
+          user = login.user;
+          session = login.session;
         }
 
-        const session = await auth.createSession(user.id);
         return sendJson(response, url.pathname.endsWith("/register") ? 201 : 200, {
           user,
           expiresAt: session.expiresAt

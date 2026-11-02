@@ -29,7 +29,7 @@
     },
     {
       "id": "REQ-IDENTITY-001",
-      "description": "Users authenticate and receive server-enforced project ownership, persisted in a local SQLite database; administrator provisioning remains pending.",
+      "description": "Users authenticate and receive server-enforced project ownership, persisted in a local SQLite database; administrator provisioning and email-based account recovery remain pending.",
       "status": "IMPLEMENTED_UNVERIFIED"
     }
   ],
@@ -43,6 +43,7 @@
     "productionReady": false,
     "blockers": [
       "No managed database backups, email verification, password recovery, or administrator provisioning",
+      "No configured email delivery for password recovery",
       "Authentication rate limiting is process-local and not shared across instances",
       "No configured AI provider or code-generation workers",
       "No external integrations or deployment adapter"

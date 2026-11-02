@@ -61,6 +61,13 @@ class PersistenceStore {
         updated_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS projects_owner_created_at ON projects(owner_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS password_resets (
+        token_hash TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS password_resets_expires_at ON password_resets(expires_at);
       CREATE TABLE IF NOT EXISTS migrations (
         version INTEGER PRIMARY KEY NOT NULL,
         applied_at TEXT NOT NULL
@@ -197,6 +204,23 @@ class PersistenceStore {
     });
   }
 
+  async createSessionIfPasswordMatches(user, session) {
+    await this.initialize();
+    return this.transaction(() => {
+      const current = this.database.prepare(`
+        SELECT salt, password_hash AS passwordHash FROM users WHERE id = ?
+      `).get(user.id);
+      if (!current || current.salt !== user.salt || current.passwordHash !== user.passwordHash) return false;
+
+      this.database.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(new Date().toISOString());
+      this.database.prepare(`
+        INSERT INTO sessions (token_hash, user_id, expires_at, created_at)
+        VALUES (?, ?, ?, ?)
+      `).run(session.tokenHash, session.userId, session.expiresAt, session.createdAt);
+      return true;
+    });
+  }
+
   async findSession(tokenHash) {
     await this.initialize();
     return this.database.prepare(`
@@ -208,6 +232,40 @@ class PersistenceStore {
   async deleteSession(tokenHash) {
     await this.initialize();
     this.database.prepare("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
+  }
+
+  async createPasswordReset(reset) {
+    await this.initialize();
+    this.transaction(() => {
+      this.database.prepare("DELETE FROM password_resets WHERE expires_at <= ?").run(new Date().toISOString());
+      this.database.prepare("DELETE FROM password_resets WHERE user_id = ?").run(reset.userId);
+      this.database.prepare(`
+        INSERT INTO password_resets (token_hash, user_id, expires_at, created_at)
+        VALUES (?, ?, ?, ?)
+      `).run(reset.tokenHash, reset.userId, reset.expiresAt, reset.createdAt);
+    });
+  }
+
+  async consumePasswordReset(tokenHash, credentials) {
+    await this.initialize();
+    return this.transaction(() => {
+      const reset = this.database.prepare(`
+        SELECT user_id AS userId, expires_at AS expiresAt
+        FROM password_resets WHERE token_hash = ?
+      `).get(tokenHash);
+      if (!reset || Date.parse(reset.expiresAt) <= Date.now()) {
+        this.database.prepare("DELETE FROM password_resets WHERE token_hash = ?").run(tokenHash);
+        return false;
+      }
+
+      const result = this.database.prepare(`
+        UPDATE users SET salt = ?, password_hash = ? WHERE id = ?
+      `).run(credentials.salt, credentials.passwordHash, reset.userId);
+      if (Number(result.changes) !== 1) return false;
+      this.database.prepare("DELETE FROM password_resets WHERE user_id = ?").run(reset.userId);
+      this.database.prepare("DELETE FROM sessions WHERE user_id = ?").run(reset.userId);
+      return true;
+    });
   }
 
   async createProject(project) {
@@ -277,8 +335,13 @@ class AuthStore {
   findUserByEmail(email) { return this.persistence.findUserByEmail(email); }
   findUserById(id) { return this.persistence.findUserById(id); }
   createSession(session) { return this.persistence.createSession(session); }
+  createSessionIfPasswordMatches(user, session) {
+    return this.persistence.createSessionIfPasswordMatches(user, session);
+  }
   findSession(tokenHash) { return this.persistence.findSession(tokenHash); }
   deleteSession(tokenHash) { return this.persistence.deleteSession(tokenHash); }
+  createPasswordReset(reset) { return this.persistence.createPasswordReset(reset); }
+  consumePasswordReset(tokenHash, credentials) { return this.persistence.consumePasswordReset(tokenHash, credentials); }
 }
 
 class ProjectStore {

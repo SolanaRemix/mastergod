@@ -31,6 +31,8 @@ The browser does not call an AI service. Discovery is deterministic text splitti
 - `POST /api/auth/login` — sign in and set a server-managed session cookie.
 - `GET /api/auth/me` — read the current authenticated account.
 - `POST /api/auth/logout` — revoke the current session.
+- `POST /api/auth/request-password-reset` — returns `503 BLOCKED` until an email provider can securely deliver recovery links.
+- `POST /api/auth/reset-password` — consumes a delivered single-use token, changes the password, and revokes existing sessions.
 - `GET /api/agents` — role names and input/output contracts.
 - `GET /api/projects` — local project records.
 - `POST /api/projects` — create a draft from `{ "prompt": "..." }`.
@@ -38,7 +40,7 @@ The browser does not call an AI service. Discovery is deterministic text splitti
 - `POST /api/projects/:id/approve` — approve/edit each requirement.
 - `GET /api/projects/:id/blueprint` — download the project blueprint.
 
-Requests that change state require JSON and are size-limited. State-changing browser requests are checked against the request origin, login and registration have process-local rate limits, and the SQLite database is created with restrictive local permissions. Existing legacy JSON data is imported once at startup; only projects linked to an imported account are retained in the authenticated project database. Original JSON files are left untouched for backup/recovery. Rate limits are not distributed, and email verification, password reset, administrator provisioning, managed database backups, and multi-factor authentication are not implemented. Do not expose this preview to an untrusted network.
+Requests that change state require JSON and are size-limited. State-changing browser requests are checked against the request origin, login and registration have process-local rate limits, and the SQLite database is created with restrictive local permissions. Existing legacy JSON data is imported once at startup; only projects linked to an imported account are retained in the authenticated project database. Original JSON files are left untouched for backup/recovery. The password reset-token lifecycle is implemented internally, but the public recovery request returns `BLOCKED` until a real email delivery adapter is configured; no token is issued or emailed through the public route. Rate limits are not distributed, and email verification, administrator provisioning, managed database backups, and multi-factor authentication are not implemented. Do not expose this preview to an untrusted network.
 
 ## Validation
 
