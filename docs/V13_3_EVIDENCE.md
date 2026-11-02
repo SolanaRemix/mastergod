@@ -31,7 +31,7 @@
 | `node --test test/providers.test.js` | 8 passed, 0 failed. |
 | `npm run check` | Passed. |
 | `npm test` | 36 passed, 0 failed. |
-| `GITHUB_SHA=9657e20f38c6aba07f4ae226351bf509ade267eb npm run build` | Passed; created `dist/master-gods-13.2.0-9657e20f38c6.tar.gz` from the committed Increment 1 source. SHA-256: `3ffaf5dace71bd0cfadd015ad10ddce861c098fa141e2f44fc86eda6dffd0061`. This tarball is not the required ZIP delivery manifest. |
+| `GITHUB_SHA=fdd47f0b3104def89ca150a472fb0c903d40d6a0 npm run build` | Passed; created `dist/master-gods-13.2.0-fdd47f0b3104.tar.gz` from the committed Increment 1 source. SHA-256: `d869bfcdee4e73f768851a0a8f88d05a433eb07c4ca262eb59a317402f8c8473`. This tarball is not the required ZIP delivery manifest. |
 
 Focused provider test names:
 
