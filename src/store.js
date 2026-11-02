@@ -293,11 +293,76 @@ class PersistenceStore {
       );
       CREATE INDEX IF NOT EXISTS project_builds_owner_project
         ON project_builds(owner_id, project_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS provider_credentials (
+        id TEXT PRIMARY KEY NOT NULL,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider_id TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        model TEXT NOT NULL,
+        ciphertext TEXT NOT NULL,
+        iv TEXT NOT NULL,
+        tag TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(owner_id, provider_id)
+      );
+      CREATE TABLE IF NOT EXISTS provider_health (
+        id TEXT PRIMARY KEY NOT NULL,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider_id TEXT NOT NULL,
+        checked_at TEXT NOT NULL,
+        ok INTEGER NOT NULL CHECK (ok IN (0, 1)),
+        latency_ms INTEGER NOT NULL CHECK (latency_ms >= 0),
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS provider_health_owner_provider
+        ON provider_health(owner_id, provider_id, checked_at DESC);
+      CREATE TABLE IF NOT EXISTS model_requests (
+        id TEXT PRIMARY KEY NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        task_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        prompt_tokens INTEGER,
+        completion_tokens INTEGER,
+        latency_ms INTEGER NOT NULL CHECK (latency_ms >= 0),
+        status TEXT NOT NULL CHECK (status IN ('IMPLEMENTED_UNVERIFIED', 'FAILED', 'BLOCKED')),
+        error TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS model_requests_project_created
+        ON model_requests(owner_id, project_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS model_routing_decisions (
+        id TEXT PRIMARY KEY NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        task_id TEXT NOT NULL,
+        inputs_json TEXT NOT NULL CHECK (json_valid(inputs_json)),
+        chosen_provider TEXT,
+        chosen_model TEXT,
+        reason TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS model_routing_decisions_project_created
+        ON model_routing_decisions(owner_id, project_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS provider_audit (
+        id TEXT PRIMARY KEY NOT NULL,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        details TEXT NOT NULL CHECK (json_valid(details)),
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS provider_audit_owner_created
+        ON provider_audit(owner_id, created_at DESC);
       CREATE TABLE IF NOT EXISTS migrations (
         version INTEGER PRIMARY KEY NOT NULL,
         applied_at TEXT NOT NULL
       );
     `);
+    this.database.prepare("INSERT OR IGNORE INTO migrations (version, applied_at) VALUES (2, ?)").run(new Date().toISOString());
     this.seedCoreAgents();
     await this.importLegacyFiles();
     return this;
@@ -582,6 +647,142 @@ class PersistenceStore {
       INSERT INTO project_artifact_audit (id, project_id, owner_id, action, path, details, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(randomUUID(), projectId, ownerId, action, artifactPath, JSON.stringify(details), createdAt);
+  }
+
+  async listProviderCredentials(ownerId) {
+    await this.initialize();
+    return this.database.prepare(`
+      SELECT provider_id AS providerId, updated_at AS updatedAt
+      FROM provider_credentials WHERE owner_id = ? ORDER BY provider_id
+    `).all(ownerId);
+  }
+
+  async getProviderCredential(ownerId, providerId) {
+    await this.initialize();
+    return this.database.prepare(`
+      SELECT id, owner_id AS ownerId, provider_id AS providerId, endpoint, model,
+        ciphertext, iv, tag, created_at AS createdAt, updated_at AS updatedAt
+      FROM provider_credentials WHERE owner_id = ? AND provider_id = ?
+    `).get(ownerId, providerId) || null;
+  }
+
+  async saveProviderCredential(credential) {
+    await this.initialize();
+    const now = new Date().toISOString();
+    this.transaction(() => {
+      this.database.prepare(`
+        INSERT INTO provider_credentials (
+          id, owner_id, provider_id, endpoint, model, ciphertext, iv, tag, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(owner_id, provider_id) DO UPDATE SET
+          endpoint = excluded.endpoint, model = excluded.model, ciphertext = excluded.ciphertext,
+          iv = excluded.iv, tag = excluded.tag, updated_at = excluded.updated_at
+      `).run(
+        credential.id, credential.ownerId, credential.providerId, credential.endpoint, credential.model,
+        credential.ciphertext, credential.iv, credential.tag, now, now
+      );
+      this.database.prepare(`
+        INSERT INTO provider_audit (id, owner_id, provider_id, action, details, created_at)
+        VALUES (?, ?, ?, 'credential-set', ?, ?)
+      `).run(randomUUID(), credential.ownerId, credential.providerId, JSON.stringify({ model: credential.model }), now);
+    });
+    const stored = await this.getProviderCredential(credential.ownerId, credential.providerId);
+    if (!stored || stored.ciphertext !== credential.ciphertext || stored.iv !== credential.iv || stored.tag !== credential.tag) {
+      throw new Error("Provider credential read-back verification failed.");
+    }
+    return { provider_id: stored.providerId, hasKey: true, updated_at: stored.updatedAt };
+  }
+
+  async deleteProviderCredential(ownerId, providerId) {
+    await this.initialize();
+    const now = new Date().toISOString();
+    const deleted = this.transaction(() => {
+      const current = this.database.prepare(`
+        SELECT 1 FROM provider_credentials WHERE owner_id = ? AND provider_id = ?
+      `).get(ownerId, providerId);
+      if (!current) return false;
+      this.database.prepare("DELETE FROM provider_credentials WHERE owner_id = ? AND provider_id = ?").run(ownerId, providerId);
+      this.database.prepare(`
+        INSERT INTO provider_audit (id, owner_id, provider_id, action, details, created_at)
+        VALUES (?, ?, ?, 'credential-deleted', '{}', ?)
+      `).run(randomUUID(), ownerId, providerId, now);
+      return true;
+    });
+    if (await this.getProviderCredential(ownerId, providerId)) throw new Error("Provider credential deletion read-back verification failed.");
+    return deleted;
+  }
+
+  async recordProviderHealth(health) {
+    await this.initialize();
+    const id = randomUUID();
+    this.transaction(() => {
+      this.database.prepare(`
+        INSERT INTO provider_health (id, owner_id, provider_id, checked_at, ok, latency_ms, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, health.ownerId, health.providerId, health.checkedAt, health.ok ? 1 : 0, health.latencyMs, health.error);
+      this.database.prepare(`
+        INSERT INTO provider_audit (id, owner_id, provider_id, action, details, created_at)
+        VALUES (?, ?, ?, 'health-check', ?, ?)
+      `).run(randomUUID(), health.ownerId, health.providerId, JSON.stringify({
+        ok: health.ok,
+        latencyMs: health.latencyMs,
+        error: health.error
+      }), health.checkedAt);
+    });
+    const row = this.database.prepare(`
+      SELECT ok, latency_ms AS latencyMs, error FROM provider_health WHERE id = ?
+    `).get(id);
+    if (!row || row.ok !== Number(health.ok) || row.latencyMs !== health.latencyMs) {
+      throw new Error("Provider health read-back verification failed.");
+    }
+    return row;
+  }
+
+  async recordModelRequest(request) {
+    await this.initialize();
+    const createdAt = new Date().toISOString();
+    this.database.prepare(`
+      INSERT INTO model_requests (
+        id, project_id, owner_id, task_id, agent_id, provider_id, model, prompt_tokens,
+        completion_tokens, latency_ms, status, error, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      request.id, request.projectId, request.ownerId, request.taskId, request.agentId,
+      request.providerId, request.model, request.promptTokens, request.completionTokens,
+      request.latencyMs, request.status, request.error, createdAt
+    );
+    const row = this.database.prepare("SELECT id, status FROM model_requests WHERE id = ?").get(request.id);
+    if (!row || row.status !== request.status) throw new Error("Model request read-back verification failed.");
+    return row;
+  }
+
+  async recordModelRoutingDecision(decision) {
+    await this.initialize();
+    const createdAt = new Date().toISOString();
+    this.database.prepare(`
+      INSERT INTO model_routing_decisions (
+        id, project_id, owner_id, task_id, inputs_json, chosen_provider, chosen_model, reason, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      decision.id, decision.projectId, decision.ownerId, decision.taskId, JSON.stringify(decision.inputs),
+      decision.providerId, decision.model, decision.reason, createdAt
+    );
+    const row = this.database.prepare("SELECT id FROM model_routing_decisions WHERE id = ?").get(decision.id);
+    if (!row) throw new Error("Model routing decision read-back verification failed.");
+    return decision;
+  }
+
+  async listModelRoutingDecisions(projectId, ownerId) {
+    await this.initialize();
+    const project = this.database.prepare("SELECT 1 FROM projects WHERE id = ? AND owner_id = ?").get(projectId, ownerId);
+    if (!project) return null;
+    return this.database.prepare(`
+      SELECT id, task_id AS taskId, inputs_json AS inputsJson, chosen_provider AS chosenProvider,
+        chosen_model AS chosenModel, reason, created_at AS createdAt
+      FROM model_routing_decisions
+      WHERE project_id = ? AND owner_id = ?
+      ORDER BY created_at ASC, id ASC
+    `).all(projectId, ownerId).map((row) => ({ ...row, inputs: JSON.parse(row.inputsJson), inputsJson: undefined }));
   }
 
   insertArtifactVersion(projectId, artifactPath, version, artifact, ownerId, changeSummary, createdAt) {
@@ -1917,6 +2118,18 @@ class ProjectStore {
   list(ownerId) { return this.persistence.listProjects(ownerId); }
   update(project) { return this.persistence.updateProject(project); }
   getAdminSummary() { return this.persistence.getAdminSummary(); }
+  listProviderCredentials(ownerId) { return this.persistence.listProviderCredentials(ownerId); }
+  getProviderCredential(ownerId, providerId) { return this.persistence.getProviderCredential(ownerId, providerId); }
+  saveProviderCredential(credential) { return this.persistence.saveProviderCredential(credential); }
+  deleteProviderCredential(ownerId, providerId) {
+    return this.persistence.deleteProviderCredential(ownerId, providerId);
+  }
+  recordProviderHealth(health) { return this.persistence.recordProviderHealth(health); }
+  recordModelRequest(request) { return this.persistence.recordModelRequest(request); }
+  recordModelRoutingDecision(decision) { return this.persistence.recordModelRoutingDecision(decision); }
+  listModelRoutingDecisions(projectId, ownerId) {
+    return this.persistence.listModelRoutingDecisions(projectId, ownerId);
+  }
   generateArtifacts(id, ownerId, artifacts) { return this.persistence.createProjectArtifacts(id, ownerId, artifacts); }
   listArtifacts(id, ownerId) { return this.persistence.listProjectArtifacts(id, ownerId); }
   createArtifact(id, ownerId, artifactPath, contents, language) {
