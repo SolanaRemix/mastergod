@@ -471,18 +471,29 @@ class ProviderService {
       });
       throw error;
     }
-    const selected = await this.router.choose({
-      ownerId,
-      projectId,
-      taskId: task.taskId,
-      inputs,
-      providers: configuration ? [{
-        providerId: PROVIDER_ID,
-        model: configuration.model,
-        hasKey: true,
-        configuration
-      }] : []
-    });
+    let selected;
+    try {
+      selected = await this.router.choose({
+        ownerId,
+        projectId,
+        taskId: task.taskId,
+        inputs,
+        providers: configuration ? [{
+          providerId: PROVIDER_ID,
+          model: configuration.model,
+          hasKey: true,
+          configuration
+        }] : []
+      });
+    } catch (error) {
+      if (error.code === "PROVIDER_BLOCKED") {
+        throw Object.assign(new Error("No eligible provider is configured for Product Discovery."), {
+          code: "AGENT_BLOCKED",
+          retryable: false
+        });
+      }
+      throw error;
+    }
     const started = Date.now();
     try {
       const completion = await this.adapter.complete(selected.configuration, {

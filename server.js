@@ -14,6 +14,7 @@ const { createCoreAgentHandlers } = require("./src/core-agents");
 const { inlineProjectAssets } = require("./src/project-preview");
 const { verifyProjectArtifacts } = require("./src/services/StaticBuildService");
 const { createProjectImplementationManifest } = require("./src/project-manifest");
+const { ProviderError, ProviderService, assertProductionSecretKey, sanitizeError } = require("./src/providers");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY_BYTES = 64 * 1024;
@@ -165,13 +166,17 @@ async function serveStatic(response, pathname) {
   return true;
 }
 
-function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirname, "data") } = {}) {
+function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirname, "data"), providerOptions = {} } = {}) {
+  assertProductionSecretKey();
   const store = new ProjectStore(dataDir);
   const gameStore = new GameStore(dataDir);
   const authStore = new AuthStore(dataDir);
   const auth = new AuthService(authStore);
+  const providerService = new ProviderService(store, providerOptions);
   const orchestrator = new AgentOrchestrator(store);
-  for (const [agentId, handler] of createCoreAgentHandlers(store)) orchestrator.registerAgent(agentId, handler);
+  for (const [agentId, handler] of createCoreAgentHandlers(store, { providers: providerService })) {
+    orchestrator.registerAgent(agentId, handler);
+  }
   const projectGenerator = new ProjectGenerator(store, orchestrator);
   const secureCookies = process.env.NODE_ENV === "production";
   const sessionCookieName = secureCookies ? "__Host-gods_session" : "gods_session";
@@ -181,6 +186,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
   const allowGameChanges = createRateLimiter({ limit: 60, windowMs: 60 * 60 * 1000 });
   const allowProjectGeneration = createRateLimiter({ limit: 8, windowMs: 60 * 60 * 1000 });
   const allowArtifactChanges = createRateLimiter({ limit: 120, windowMs: 60 * 60 * 1000 });
+  const allowProviderChanges = createRateLimiter({ limit: 30, windowMs: 60 * 60 * 1000 });
 
   const server = http.createServer(async (request, response) => {
     try {
@@ -312,6 +318,52 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         const session = await auth.getSession(getCookie(request, sessionCookieName));
         if (!session) return sendJson(response, 401, { error: "Sign in to manage games." });
         request.authenticatedUser = session.user;
+      }
+
+      if (url.pathname === "/api/providers" || url.pathname.startsWith("/api/providers/")) {
+        if (!isSameOrigin(request) && request.method !== "GET") {
+          return sendJson(response, 403, { error: "This request must come from this site." });
+        }
+        const session = await auth.getSession(getCookie(request, sessionCookieName));
+        if (!session) return sendJson(response, 401, { error: "Sign in to manage provider settings." });
+        request.authenticatedUser = session.user;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/providers") {
+        return sendJson(response, 200, { providers: await providerService.listProviders(request.authenticatedUser.id) });
+      }
+
+      const providerRoute = url.pathname.match(/^\/api\/providers\/([a-z0-9-]+)(?:\/(credential|health|models))?$/);
+      if (providerRoute) {
+        const providerId = providerRoute[1];
+        const action = providerRoute[2];
+        if (providerId !== "openai-compatible") return sendJson(response, 404, { error: "Provider not found." });
+        if (request.method !== "GET" && !allowProviderChanges(request.authenticatedUser.id)) {
+          return sendJson(response, 429, { error: "Provider settings activity limit reached. Try again later." }, { "retry-after": "3600" });
+        }
+        if (request.method === "PUT" && action === "credential") {
+          const credential = await readJson(request);
+          const saved = await providerService.saveCredential(request.authenticatedUser.id, credential);
+          return sendJson(response, 200, { provider: saved, status: "IMPLEMENTED_UNVERIFIED" });
+        }
+        if (request.method === "DELETE" && action === "credential") {
+          const deleted = await providerService.deleteCredential(request.authenticatedUser.id);
+          return sendJson(response, 200, {
+            provider: { provider_id: providerId, hasKey: false, updated_at: null },
+            deleted,
+            status: "IMPLEMENTED_UNVERIFIED"
+          });
+        }
+        if (request.method === "POST" && action === "health") {
+          await readJson(request);
+          const health = await providerService.healthCheck(request.authenticatedUser.id);
+          return sendJson(response, 200, { health, status: health.ok ? "IMPLEMENTED_UNVERIFIED" : "BLOCKED" });
+        }
+        if (request.method === "GET" && action === "models") {
+          const models = await providerService.listModels(request.authenticatedUser.id);
+          return sendJson(response, 200, { models, status: "IMPLEMENTED_UNVERIFIED" });
+        }
+        return sendJson(response, 405, { error: "Provider operation is not supported." });
       }
 
       if (request.method === "GET" && url.pathname === "/api/agents") {
@@ -509,6 +561,18 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           return sendJson(response, 200, { task });
         }
         return sendJson(response, 405, { error: "Agent task operation is not supported." });
+      }
+
+      const routingDecisionsRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/routing-decisions$/);
+      if (request.method === "GET" && routingDecisionsRoute) {
+        const projectId = routingDecisionsRoute[1];
+        const ownerId = request.authenticatedUser.id;
+        const project = await store.get(projectId);
+        if (!project || project.ownerId !== ownerId) return sendJson(response, 404, { error: "Project not found." });
+        return sendJson(response, 200, {
+          decisions: await store.listModelRoutingDecisions(projectId, ownerId),
+          status: "IMPLEMENTED_UNVERIFIED"
+        });
       }
 
       const executionRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/execution$/);
@@ -916,6 +980,27 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
 
       return sendJson(response, 404, { error: "Route not found." });
     } catch (error) {
+      if (error instanceof ProviderError) {
+        const safe = sanitizeError(error);
+        const status = ({
+          SECRET_KEY_MISSING: 503,
+          SECRET_KEY_INVALID: 503,
+          INVALID_PROVIDER_URL: 400,
+          INSECURE_PROVIDER_URL: 400,
+          PRIVATE_PROVIDER_URL: 400,
+          PROVIDER_DNS_FAILED: 502,
+          PROVIDER_BLOCKED: 409,
+          PROVIDER_AUTH_FAILED: 502,
+          PROVIDER_RATE_LIMITED: 502,
+          PROVIDER_UNAVAILABLE: 502,
+          PROVIDER_TIMEOUT: 504,
+          PROVIDER_NETWORK_ERROR: 502,
+          PROVIDER_INVALID_RESPONSE: 502,
+          PROVIDER_INVALID_JSON: 502,
+          MODEL_NOT_FOUND: 502
+        }[safe.code] || 502);
+        return sendJson(response, status, { error: safe.message, code: safe.code });
+      }
       const status = error.status || ({
         PROTECTED_ARTIFACT: 403,
         VERSION_CONFLICT: 409,
@@ -937,7 +1022,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
     }
   });
 
-return { server, store, gameStore, authStore, orchestrator, projectGenerator };
+return { server, store, gameStore, authStore, orchestrator, projectGenerator, providerService };
 }
 
 if (require.main === module) {

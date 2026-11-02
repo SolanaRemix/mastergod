@@ -141,7 +141,7 @@ render();`
   };
 }
 
-function createCoreAgentHandlers(store) {
+function createCoreAgentHandlers(store, { providers } = {}) {
   const handlers = new Map();
   for (const agent of CORE_AGENT_DEFINITIONS) {
     handlers.set(agent.id, async (input, context) => {
@@ -150,6 +150,13 @@ function createCoreAgentHandlers(store) {
       const requirementIds = requirements.map((requirement) => requirement.id).filter((id) => typeof id === "string");
       switch (agent.id) {
         case "requirements-intelligence":
+          if (providers) return providers.runProductDiscovery({
+            ownerId: context.task.ownerId,
+            projectId: context.task.projectId,
+            task: context.task,
+            input,
+            signal: context.signal
+          });
           return basicResult(
             requirements.map(({ id, text }) => ({ requirementId: id, statement: safeText(text), acceptanceCheck: `Confirm implementation evidence for: ${safeText(text, 220)}` })),
             [`Read ${requirements.length} approved requirement(s) from the task input.`]
