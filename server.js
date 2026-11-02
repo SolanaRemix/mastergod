@@ -146,6 +146,7 @@ async function serveStatic(response, pathname) {
   const files = {
     "/": "index.html",
     "/app.js": "app.js",
+    "/markdown-renderer.js": "markdown-renderer.js",
     "/styles.css": "styles.css"
   };
   const file = files[pathname];

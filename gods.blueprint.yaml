@@ -89,8 +89,8 @@
     },
     {
       "id": "REQ-PROJECT-GENERATION-001",
-      "description": "Approved saved blueprints are validated and converted into deterministic project-type-specific agent task graphs with persistent owner-scoped state and events; source generation remains unavailable until verified workers are configured.",
-      "status": "VERIFIED"
+      "description": "Approved saved blueprints are validated and converted into deterministic project-type-specific task graphs; a bounded local worker creates editable frontend prototype artifacts, not a complete production application.",
+      "status": "PARTIALLY_IMPLEMENTED"
     },
     {
       "id": "REQ-UI-ARTIFACTS-001",

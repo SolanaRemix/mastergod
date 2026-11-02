@@ -30,6 +30,8 @@ Project APIs require an authenticated account and only return projects owned by 
 
 The file manager supports read, create, edit, copy, rename, delete, download, folder operations, version history, restore, upload of bounded UTF-8 files, and verified text-only ZIP import/export. Imports reject unsafe paths, secrets, binary files, oversize entries, and conflicts rather than overwriting. Writes use optimistic version checks and are read back from SQLite before success is returned. The endpoints are owner-scoped under `/api/projects/:id/artifacts`; state-changing requests require same-origin JSON. Saved HTML can be previewed in a network-restricted sandbox. Persistent static checks report supported syntax and structure findings without executing project code. These capabilities are not a general-purpose IDE or isolated production build pipeline.
 
+Markdown artifacts have an editable source and live preview supporting headings, paragraphs, nested lists/checklists, tables, blockquotes, inline emphasis/code, safe links, HTTPS images, and fenced code. Raw HTML is escaped. This is not a full CommonMark implementation and does not provide syntax highlighting, math/Mermaid execution, or AI-response code actions.
+
 ### UI design system
 
 The existing builder, requirement review, project and game cards, task panels, and artifact editor share dark glass/neon design tokens and the `FlashGlowCard` DOM helper. Its CSS variants are purple, orange, red, green, yellow, cyan, blue, and `rainbow-subtle`; animation and blur are optional and reduced-motion is respected. This is a skin for the actual single-page app, not an implementation of absent chat, model, provider, billing, community, or asset-studio pages.
@@ -40,7 +42,7 @@ After the intended account has been created and its email identity has been inde
 
 The browser does not call an AI service. Requirement extraction and capability matching use deterministic text rules, not model-based interpretation. Project-specific blueprints are JSON documents (a valid YAML 1.2 subset) stored with a `.yaml` extension to avoid an unverified YAML dependency. The root [`gods.blueprint.yaml`](gods.blueprint.yaml) records the current product scope and unmet release gates.
 
-## V12 platform documentation
+## Platform documentation
 
 - [Architecture](docs/ARCHITECTURE.md) and [implementation status](docs/IMPLEMENTATION_PLAN.md)
 - [API reference](docs/API_REFERENCE.md), [agent system](docs/AGENT_SYSTEM.md), and [provider boundaries](docs/PROVIDER_INTEGRATIONS.md)

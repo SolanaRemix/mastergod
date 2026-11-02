@@ -2,7 +2,7 @@
   "name": "master-gods",
   "version": "13.0.0",
   "private": true,
-  "description": "A beginner-first agentic project planner with request-derived teams and evidence-aware execution records.",
+  "description": "A V13-in-progress local-first project studio with owner-scoped artifacts and evidence-aware execution records.",
   "scripts": {
     "start": "node --experimental-strip-types server.js",
     "provision-admin": "node scripts/provision-admin.js",

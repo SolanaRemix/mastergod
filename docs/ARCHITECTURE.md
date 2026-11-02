@@ -30,4 +30,4 @@ The local code-generation handler can write editable, project-specific HTML/CSS/
 
 ## Repository compatibility
 
-The repository does not contain prior V7 phase/specification/gate definitions or a connected Gemini application to preserve. The V12 release gates are recorded separately in `gods.blueprint.yaml`; they are not represented as legacy V7 definitions.
+The repository does not contain prior V7 phase/specification/gate definitions or a connected Gemini application to preserve. V12 baseline and V13 upgrade gates are tracked in `gods.blueprint.yaml`; they are not represented as legacy V7 definitions.

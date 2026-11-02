@@ -167,6 +167,17 @@ test("health reports the initialized SQLite persistence adapter", async () => {
   assert.equal(health.productionReady, false);
 });
 
+test("workspace loads the Markdown renderer before the artifact editor script", async () => {
+  const page = await fetch(baseUrl);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.ok(html.indexOf('src="/markdown-renderer.js"') < html.indexOf('src="/app.js"'));
+  const script = await fetch(`${baseUrl}/markdown-renderer.js`);
+  assert.equal(script.status, 200);
+  assert.match(script.headers.get("content-type"), /javascript/);
+  assert.match(await script.text(), /GodsMarkdown/);
+});
+
 test("deployment preflight blocks missing credentials, invalid health URLs, and unmet release gates", () => {
   const script = path.join(__dirname, "..", "scripts", "deploy-release.sh");
   const missingConfiguration = spawnSync("bash", [script, "preflight"], {
