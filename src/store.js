@@ -150,6 +150,45 @@ class PersistenceStore {
       );
       CREATE INDEX IF NOT EXISTS project_artifact_audit_project
         ON project_artifact_audit(project_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS agent_tasks (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        task_id TEXT NOT NULL,
+        generation_id TEXT NOT NULL,
+        project_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        dependencies TEXT NOT NULL CHECK (json_valid(dependencies)),
+        input TEXT NOT NULL CHECK (json_valid(input)),
+        timeout_seconds INTEGER NOT NULL CHECK (timeout_seconds > 0),
+        max_attempts INTEGER NOT NULL CHECK (max_attempts > 0),
+        attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+        status TEXT NOT NULL CHECK (status IN ('BLOCKED', 'QUEUED', 'RUNNING', 'RETRYING', 'COMPLETED', 'FAILED')),
+        blocked_reason TEXT,
+        error TEXT CHECK (error IS NULL OR json_valid(error)),
+        result TEXT CHECK (result IS NULL OR json_valid(result)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, task_id)
+      );
+      CREATE INDEX IF NOT EXISTS agent_tasks_owner_project
+        ON agent_tasks(owner_id, project_id, created_at);
+      CREATE INDEX IF NOT EXISTS agent_tasks_project_status
+        ON agent_tasks(project_id, status);
+      CREATE TABLE IF NOT EXISTS agent_task_events (
+        id TEXT PRIMARY KEY NOT NULL,
+        project_id TEXT NOT NULL,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        task_id TEXT NOT NULL,
+        from_state TEXT,
+        to_state TEXT NOT NULL CHECK (to_state IN ('BLOCKED', 'QUEUED', 'RUNNING', 'RETRYING', 'COMPLETED', 'FAILED')),
+        attempt INTEGER NOT NULL CHECK (attempt >= 0),
+        details TEXT NOT NULL CHECK (json_valid(details)),
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (project_id, task_id) REFERENCES agent_tasks(project_id, task_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS agent_task_events_project_task
+        ON agent_task_events(owner_id, project_id, task_id, created_at);
       CREATE TABLE IF NOT EXISTS migrations (
         version INTEGER PRIMARY KEY NOT NULL,
         applied_at TEXT NOT NULL
@@ -518,7 +557,7 @@ class PersistenceStore {
       for (const artifact of artifacts) {
         const artifactPath = validateArtifactPath(artifact.path);
         const createdAt = artifact.generatedAt || new Date().toISOString();
-        insert.run(
+        const inserted = insert.run(
           projectId,
           ownerId,
           artifactPath,
@@ -1143,6 +1182,201 @@ class PersistenceStore {
     `).all(projectId, ownerId).map((event) => ({ ...event, details: JSON.parse(event.details) }));
   }
 
+  agentTaskFromRow(row) {
+    if (!row) return null;
+    return {
+      taskId: row.taskId,
+      projectId: row.projectId,
+      ownerId: row.ownerId,
+      generationId: row.generationId,
+      projectType: row.projectType,
+      title: row.title,
+      agentId: row.agentId,
+      dependencies: JSON.parse(row.dependencies),
+      input: JSON.parse(row.input),
+      timeoutSeconds: row.timeoutSeconds,
+      maxAttempts: row.maxAttempts,
+      attempt: row.attempt,
+      status: row.status,
+      blockedReason: row.blockedReason,
+      error: row.error ? JSON.parse(row.error) : null,
+      result: row.result ? JSON.parse(row.result) : null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
+    };
+  }
+
+  async createAgentTasks(projectId, ownerId, tasks) {
+    await this.initialize();
+    return this.transaction(() => {
+      if (!this.database.prepare(`
+        SELECT 1 FROM projects WHERE id = ? AND owner_id = ?
+      `).get(projectId, ownerId)) return null;
+      if (!Array.isArray(tasks) || !tasks.length) {
+        throw new Error("An execution graph must contain at least one task.");
+      }
+      const generationId = tasks[0].generationId;
+      const existing = this.database.prepare(`
+        SELECT DISTINCT generation_id FROM agent_tasks WHERE project_id = ? AND owner_id = ?
+      `).all(projectId, ownerId);
+      if (existing.some((entry) => entry.generation_id !== generationId)) {
+        const error = new Error("This project already has a different execution graph.");
+        error.code = "EXECUTION_GRAPH_EXISTS";
+        throw error;
+      }
+      const insert = this.database.prepare(`
+        INSERT OR IGNORE INTO agent_tasks (
+          project_id, owner_id, task_id, generation_id, project_type, title, agent_id,
+          dependencies, input, timeout_seconds, max_attempts, attempt, status,
+          blocked_reason, error, result, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+      `);
+      for (const task of tasks) {
+        if (task.projectId !== projectId || task.ownerId !== ownerId || task.generationId !== generationId) {
+          throw new Error("Execution graph contains inconsistent project ownership or generation identifiers.");
+        }
+        insert.run(
+          projectId,
+          ownerId,
+          task.taskId,
+          task.generationId,
+          task.projectType,
+          task.title,
+          task.agentId,
+          JSON.stringify(task.dependencies),
+          JSON.stringify(task.input),
+          task.timeoutSeconds,
+          task.maxAttempts,
+          task.attempt,
+          task.status,
+          task.blockedReason,
+          task.createdAt,
+          task.updatedAt
+        );
+        if (Number(inserted.changes) === 1) {
+          this.database.prepare(`
+            INSERT INTO agent_task_events (id, project_id, owner_id, task_id, from_state, to_state, attempt, details, created_at)
+            VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)
+          `).run(
+            randomUUID(),
+            projectId,
+            ownerId,
+            task.taskId,
+            task.status,
+            task.attempt,
+            JSON.stringify({ reason: "task-created", agentId: task.agentId, generationId }),
+            task.createdAt
+          );
+        }
+      }
+      const readBack = this.database.prepare(`
+        SELECT COUNT(*) AS count FROM agent_tasks WHERE project_id = ? AND owner_id = ? AND generation_id = ?
+      `).get(projectId, ownerId, generationId);
+      if (readBack.count !== tasks.length) {
+        const error = new Error("Execution graph did not pass database read-back verification.");
+        error.code = "EXECUTION_GRAPH_CONFLICT";
+        throw error;
+      }
+      return this.listAgentTasksSync(projectId, ownerId);
+    });
+  }
+
+  listAgentTasksSync(projectId, ownerId) {
+    return this.database.prepare(`
+      SELECT task_id AS taskId, project_id AS projectId, owner_id AS ownerId,
+        generation_id AS generationId, project_type AS projectType, title,
+        agent_id AS agentId, dependencies, input, timeout_seconds AS timeoutSeconds,
+        max_attempts AS maxAttempts, attempt, status, blocked_reason AS blockedReason,
+        error, result, created_at AS createdAt, updated_at AS updatedAt
+      FROM agent_tasks
+      WHERE project_id = ? AND owner_id = ?
+      ORDER BY created_at, task_id
+    `).all(projectId, ownerId).map((row) => this.agentTaskFromRow(row));
+  }
+
+  async listAgentTasks(projectId, ownerId) {
+    await this.initialize();
+    if (!this.database.prepare(`
+      SELECT 1 FROM projects WHERE id = ? AND owner_id = ?
+    `).get(projectId, ownerId)) return null;
+    return this.listAgentTasksSync(projectId, ownerId);
+  }
+
+  async getAgentTask(projectId, ownerId, taskId) {
+    await this.initialize();
+    const row = this.database.prepare(`
+      SELECT task_id AS taskId, project_id AS projectId, owner_id AS ownerId,
+        generation_id AS generationId, project_type AS projectType, title,
+        agent_id AS agentId, dependencies, input, timeout_seconds AS timeoutSeconds,
+        max_attempts AS maxAttempts, attempt, status, blocked_reason AS blockedReason,
+        error, result, created_at AS createdAt, updated_at AS updatedAt
+      FROM agent_tasks WHERE project_id = ? AND owner_id = ? AND task_id = ?
+    `).get(projectId, ownerId, taskId);
+    return this.agentTaskFromRow(row);
+  }
+
+  async transitionAgentTask(projectId, ownerId, taskId, expectedState, nextState, update, details) {
+    await this.initialize();
+    return this.transaction(() => {
+      const current = this.database.prepare(`
+        SELECT status, attempt FROM agent_tasks
+        WHERE project_id = ? AND owner_id = ? AND task_id = ?
+      `).get(projectId, ownerId, taskId);
+      if (!current || current.status !== expectedState) return null;
+      const allowedFields = new Set(["attempt", "blockedReason", "error", "result", "updatedAt"]);
+      if (Object.keys(update).some((field) => !allowedFields.has(field))) {
+        throw new Error("Agent task transition contains an unsupported field.");
+      }
+      const attempt = update.attempt ?? current.attempt;
+      const blockedReason = update.blockedReason ?? null;
+      const error = update.error ? JSON.stringify(update.error) : null;
+      const result = update.result ? JSON.stringify(update.result) : null;
+      const updatedAt = update.updatedAt || new Date().toISOString();
+      const changed = this.database.prepare(`
+        UPDATE agent_tasks SET status = ?, attempt = ?, blocked_reason = ?, error = ?, result = ?, updated_at = ?
+        WHERE project_id = ? AND owner_id = ? AND task_id = ? AND status = ?
+      `).run(nextState, attempt, blockedReason, error, result, updatedAt,
+        projectId, ownerId, taskId, expectedState);
+      if (Number(changed.changes) !== 1) return null;
+      this.database.prepare(`
+        INSERT INTO agent_task_events (id, project_id, owner_id, task_id, from_state, to_state, attempt, details, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(randomUUID(), projectId, ownerId, taskId, expectedState, nextState, attempt,
+        JSON.stringify(details), updatedAt);
+      const readBack = this.database.prepare(`
+        SELECT status, attempt, blocked_reason AS blockedReason, error, result
+        FROM agent_tasks WHERE project_id = ? AND owner_id = ? AND task_id = ?
+      `).get(projectId, ownerId, taskId);
+      if (readBack.status !== nextState || readBack.attempt !== attempt) {
+        throw new Error("Agent task state did not pass database read-back verification.");
+      }
+      return this.agentTaskFromRow(this.database.prepare(`
+        SELECT task_id AS taskId, project_id AS projectId, owner_id AS ownerId,
+          generation_id AS generationId, project_type AS projectType, title,
+          agent_id AS agentId, dependencies, input, timeout_seconds AS timeoutSeconds,
+          max_attempts AS maxAttempts, attempt, status, blocked_reason AS blockedReason,
+          error, result, created_at AS createdAt, updated_at AS updatedAt
+        FROM agent_tasks WHERE project_id = ? AND owner_id = ? AND task_id = ?
+      `).get(projectId, ownerId, taskId));
+    });
+  }
+
+  async listAgentTaskEvents(projectId, ownerId, taskId) {
+    await this.initialize();
+    if (!this.database.prepare(`
+      SELECT 1 FROM agent_tasks WHERE project_id = ? AND owner_id = ? AND task_id = ?
+    `).get(projectId, ownerId, taskId)) return null;
+    return this.database.prepare(`
+      SELECT from_state AS fromState, to_state AS toState, attempt, details, created_at AS createdAt
+      FROM agent_task_events
+      WHERE project_id = ? AND owner_id = ? AND task_id = ?
+      ORDER BY created_at, rowid
+    `).all(projectId, ownerId, taskId).map((event) => ({
+      ...event,
+      details: JSON.parse(event.details)
+    }));
+  }
+
   async createGameProject(game) {
     await this.initialize();
     this.transaction(() => {
@@ -1371,6 +1605,15 @@ class ProjectStore {
   }
   deleteArtifactDirectory(id, ownerId, directoryPath) {
     return this.persistence.deleteProjectDirectory(id, ownerId, directoryPath);
+  }
+  createAgentTasks(id, ownerId, tasks) { return this.persistence.createAgentTasks(id, ownerId, tasks); }
+  listAgentTasks(id, ownerId) { return this.persistence.listAgentTasks(id, ownerId); }
+  getAgentTask(id, ownerId, taskId) { return this.persistence.getAgentTask(id, ownerId, taskId); }
+  transitionAgentTask(id, ownerId, taskId, expected, next, update, details) {
+    return this.persistence.transitionAgentTask(id, ownerId, taskId, expected, next, update, details);
+  }
+  listAgentTaskEvents(id, ownerId, taskId) {
+    return this.persistence.listAgentTaskEvents(id, ownerId, taskId);
   }
 }
 
