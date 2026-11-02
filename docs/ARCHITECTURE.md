@@ -1,0 +1,32 @@
+# Architecture
+
+## Current implementation
+
+Master GODS V12.0.0 is a dependency-free Node.js application, not a connected Google AI Studio project. It uses the existing Node.js HTTP server, browser JavaScript, and SQLite architecture; no framework or database replacement is introduced.
+
+The request path is:
+
+1. `public/app.js` submits a user prompt to `server.js`.
+2. `src/blueprint.js` creates editable requirement records.
+3. An authenticated user approves the blueprint.
+4. `src/services/ProjectGenerator.ts` validates approved requirements and asks `src/capability-registry.js` to match capabilities to catalog entries.
+5. `src/services/AgentOrchestrator.ts` prepares a dependency graph and marks tasks blocked unless an executable worker is registered.
+6. `src/store.js` stores the graph and execution snapshot in SQLite; the owner-scoped execution endpoint reads the snapshot back.
+
+The current boundary is planning and tracking. This path does not generate application source, call a model provider, or deploy an application.
+
+## Module ownership
+
+| Layer | Entry point | Status |
+|---|---|---|
+| Browser workspace | `public/app.js`, `public/index.html`, `public/styles.css` | Implemented, not production-verified |
+| HTTP API and authentication gates | `server.js` | Implemented, focused tests |
+| Requirement and blueprint logic | `src/blueprint.js` | Implemented, deterministic |
+| Capability metadata and discovery | `src/agents.js`, `src/capability-registry.js` | Implemented, catalog-only workers |
+| Task orchestration | `src/services/AgentOrchestrator.ts` | Partial; no configured workers or durable queue |
+| Project, artifact, and execution persistence | `src/store.js` | SQLite implementation, owner-scoped |
+| Provider adapters, model routing, workflow runtime, and production deployment | Not present | Blocked or missing |
+
+## Repository compatibility
+
+The repository does not contain prior V7 phase/specification/gate definitions or a connected Gemini application to preserve. The V12 release gates are recorded separately in `gods.blueprint.yaml`; they are not represented as legacy V7 definitions.

@@ -1,6 +1,6 @@
-# Master GODS V11.0.0
+# Master GODS V12.0.0
 
-A dependency-free, local-first project planner with authenticated ownership, SQLite persistence, request-derived capability plans and execution snapshots, a deterministic 2D game template, and an evidence-aware artifact file manager. Provider-backed agent execution and the full production software factory are not configured.
+A dependency-free, local-first AI Studio foundation with authenticated ownership, SQLite persistence, request-derived capability plans and execution snapshots, a deterministic 2D game template, and an evidence-aware artifact file manager. Provider-backed agent execution and the full production software factory are not configured.
 
 ## Run locally
 
@@ -38,6 +38,13 @@ The existing builder, requirement review, project and game cards, task panels, a
 After the intended account has been created and its email identity has been independently verified by the operator, run `npm run provision-admin` in an interactive terminal on the host. The command accepts only `GODS_SUPER_ADMIN_EMAIL` (defaults to `gxqstudio@gmail.com`), asks for the account password without echoing it, verifies that password against the stored scrypt hash, and performs a conditional server-side role update. Never put passwords in command arguments or grant admin based on an email string alone. `GET /api/admin/summary` is available only to a currently authenticated, provisioned administrator. Email identity verification is an operator procedure, not an implemented email integration.
 
 The browser does not call an AI service. Requirement extraction and capability matching use deterministic text rules, not model-based interpretation. Project-specific blueprints are JSON documents (a valid YAML 1.2 subset) stored with a `.yaml` extension to avoid an unverified YAML dependency. The root [`gods.blueprint.yaml`](gods.blueprint.yaml) records the current product scope and unmet release gates.
+
+## V12 platform documentation
+
+- [Architecture](docs/ARCHITECTURE.md) and [implementation status](docs/IMPLEMENTATION_PLAN.md)
+- [API reference](docs/API_REFERENCE.md), [agent system](docs/AGENT_SYSTEM.md), and [provider boundaries](docs/PROVIDER_INTEGRATIONS.md)
+- [Security](docs/SECURITY.md), [database](docs/DATABASE.md), and [deployment](docs/DEPLOYMENT.md)
+- [Testing](docs/TESTING.md), [changelog](docs/CHANGELOG.md), and [V12 release status](docs/RELEASE_V12.md)
 
 ## API
 

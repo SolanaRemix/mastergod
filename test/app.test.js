@@ -129,6 +129,22 @@ test("capability registry discovers request-specific and registered specialist c
   assert.throws(() => registry.register(specialist), { code: "AGENT_ALREADY_REGISTERED" });
 });
 
+test("V12 blueprint version, canonical status values, and release gates are consistent", () => {
+  const manifest = require("../package.json");
+  const blueprint = JSON.parse(require("node:fs").readFileSync(path.join(__dirname, "..", "gods.blueprint.yaml"), "utf8"));
+  const knownStatuses = new Set([
+    "VERIFIED", "IMPLEMENTED_UNVERIFIED", "PARTIALLY_IMPLEMENTED", "MISSING",
+    "BLOCKED", "FAILED", "UNKNOWN", "NOT_APPLICABLE"
+  ]);
+  assert.equal(manifest.version, "12.0.0");
+  assert.equal(blueprint.project.version, manifest.version);
+  assert.equal(blueprint.blueprintVersion, manifest.version);
+  assert.equal(blueprint.release.productionReady, false);
+  assert.equal(blueprint.release.acceptanceGates.length, 17);
+  assert.ok(blueprint.requirements.every((requirement) => knownStatuses.has(requirement.status)));
+  assert.ok(blueprint.release.acceptanceGates.every((gate) => knownStatuses.has(gate.status)));
+});
+
 test("health reports the initialized SQLite persistence adapter", async () => {
   const response = await fetch(`${baseUrl}/api/health`);
   assert.equal(response.status, 200);

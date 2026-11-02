@@ -6,6 +6,58 @@ const { randomUUID } = require("node:crypto");
 const { isProtectedArtifactPath, validateArtifactPath } = require("./artifacts");
 
 const stores = new Map();
+const EXECUTION_STATUSES = new Set([
+  "planning",
+  "awaiting_approval",
+  "executing",
+  "integrating",
+  "testing",
+  "completed",
+  "failed",
+  "blocked"
+]);
+
+function assertAgenticExecution(execution, projectId, generationId, tasks) {
+  const isObject = (value) => value && typeof value === "object" && !Array.isArray(value);
+  if (!isObject(execution)
+    || execution.requestId !== generationId
+    || execution.projectId !== projectId
+    || typeof execution.originalPrompt !== "string"
+    || !execution.originalPrompt.trim()
+    || execution.originalPrompt.length > 10_000
+    || typeof execution.blueprintVersion !== "string"
+    || !EXECUTION_STATUSES.has(execution.status)) {
+    throw new Error("Execution snapshot is invalid or does not match its task graph.");
+  }
+  for (const field of ["requirements", "selectedAgents", "createdAgents", "modelAssignments", "taskGraph", "artifacts", "approvals", "testResults", "capabilityGaps"]) {
+    if (!Array.isArray(execution[field])) throw new Error(`Execution snapshot field ${field} must be an array.`);
+  }
+  if (execution.requirements.length < 1 || execution.requirements.length > 200
+    || execution.requirements.some((requirement) => !isObject(requirement)
+      || typeof requirement.id !== "string" || typeof requirement.text !== "string" || !requirement.text.trim())) {
+    throw new Error("Execution snapshot requirements are invalid.");
+  }
+  if (execution.selectedAgents.some((agent) => !isObject(agent)
+    || typeof agent.agentId !== "string" || typeof agent.capability !== "string")) {
+    throw new Error("Execution snapshot agent assignments are invalid.");
+  }
+  const graphIds = new Set(execution.taskGraph.map((task) => task?.taskId));
+  if (execution.taskGraph.length !== tasks.length
+    || graphIds.size !== tasks.length
+    || tasks.some((task) => !graphIds.has(task.taskId))
+    || execution.taskGraph.some((task) => !isObject(task)
+      || typeof task.agentId !== "string"
+      || !Array.isArray(task.requirementIds)
+      || !Array.isArray(task.dependencies))) {
+    throw new Error("Execution snapshot task graph does not match the persisted task records.");
+  }
+  if (execution.capabilityGaps.some((gap) => !isObject(gap)
+    || typeof gap.capability !== "string"
+    || typeof gap.status !== "string"
+    || typeof gap.reason !== "string")) {
+    throw new Error("Execution snapshot capability gaps are invalid.");
+  }
+}
 
 function parseJsonFile(file) {
   return fs.readFile(file, "utf8")
@@ -1289,10 +1341,7 @@ class PersistenceStore {
         throw error;
       }
       if (execution) {
-        if (execution.projectId !== projectId || execution.requestId !== generationId
-          || !["planning", "awaiting_approval", "executing", "integrating", "testing", "completed", "failed", "blocked"].includes(execution.status)) {
-          throw new Error("Execution snapshot is invalid or does not match its task graph.");
-        }
+        assertAgenticExecution(execution, projectId, generationId, tasks);
         const now = new Date().toISOString();
         this.database.prepare(`
           INSERT OR IGNORE INTO agentic_executions (project_id, owner_id, generation_id, execution, created_at, updated_at)

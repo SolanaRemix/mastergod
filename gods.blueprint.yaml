@@ -1,10 +1,10 @@
 {
-  "blueprintVersion": "1.0",
+  "blueprintVersion": "12.0.0",
   "project": {
     "id": "master-gods",
     "name": "Master GODS",
-    "version": "11.0.0",
-    "purpose": "Help users describe an application, review its requirements, assemble a request-derived agent team, and retain an evidence-aware execution record."
+    "version": "12.0.0",
+    "purpose": "A unified AI Studio foundation for beginner-first application planning, request-derived agent capability teams, persistent execution records, artifact management, and evidence-aware status reporting."
   },
   "requirements": [
     {
@@ -34,8 +34,13 @@
     },
     {
       "id": "REQ-CUSTOM-AGENTS-001",
-      "description": "Custom agent definitions can be registered in the in-memory capability registry for planning, but persistent agent authoring, validation, tests, permissions, deployment, and independent execution are not implemented.",
+      "description": "Custom agent descriptors can be registered in the in-memory capability registry for planning, but persistent agent authoring, validation, tests, permissions, deployment, and independent execution are not implemented.",
       "status": "PARTIALLY_IMPLEMENTED"
+    },
+    {
+      "id": "REQ-V12-SSOT-001",
+      "description": "The versioned product blueprint records current modules, persistence, execution boundaries, release gates, and blocked integrations without claiming missing features.",
+      "status": "IMPLEMENTED_UNVERIFIED"
     },
     {
       "id": "REQ-PROVIDERS-001",
@@ -94,6 +99,42 @@
     "dependencies": [],
     "persistence": "SQLite users, sessions, project records, agentic execution snapshots, agent task graphs and events, project artifact files and versions, private game projects, game versions, and validated game saves"
   },
+  "architecture": {
+    "pattern": "Single Node.js HTTP application with modular services, static browser client, and SQLite persistence.",
+    "externalAiStudio": "This repository does not contain a connected Google AI Studio application or configured Gemini provider.",
+    "layers": [
+      { "name": "Browser workspace", "status": "IMPLEMENTED_UNVERIFIED", "entry": "public/app.js" },
+      { "name": "Authentication and ownership", "status": "IMPLEMENTED_UNVERIFIED", "entry": "src/auth.js" },
+      { "name": "HTTP API", "status": "IMPLEMENTED_UNVERIFIED", "entry": "server.js" },
+      { "name": "Blueprint and capability planning", "status": "IMPLEMENTED_UNVERIFIED", "entry": "src/services/ProjectGenerator.ts" },
+      { "name": "Task orchestration", "status": "PARTIALLY_IMPLEMENTED", "entry": "src/services/AgentOrchestrator.ts" },
+      { "name": "SQLite persistence", "status": "IMPLEMENTED_UNVERIFIED", "entry": "src/store.js" },
+      { "name": "Provider adapters, durable jobs, and production deployment", "status": "BLOCKED", "entry": null }
+    ]
+  },
+  "databaseEntities": [
+    { "name": "users", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "sessions", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "projects", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "agent_tasks", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "agent_task_events", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "agentic_executions", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "project_artifacts and versions", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "games, versions, and saves", "status": "IMPLEMENTED_UNVERIFIED" },
+    { "name": "agent versions, model registry, workflows, billing, and organizations", "status": "MISSING" }
+  ],
+  "providerIntegrations": {
+    "configured": [],
+    "supportedAdapters": [],
+    "status": "BLOCKED",
+    "reason": "No provider credentials, documented adapter implementation, or live provider verification is configured."
+  },
+  "featureFlags": {
+    "providerExecution": false,
+    "web3Transactions": false,
+    "workflowExecution": false,
+    "productionDeployment": false
+  },
   "agenticCore": {
     "capabilityRegistry": "Validated in-process descriptors; registry entries are catalog-only unless an executable worker is registered.",
     "teamAssembly": "Approved request requirements select matching capabilities; missing, undeployed, and unavailable capabilities are reported as BLOCKED.",
@@ -121,6 +162,26 @@
   },
   "release": {
     "productionReady": false,
+    "status": "PARTIALLY_IMPLEMENTED",
+    "acceptanceGates": [
+      { "id": 1, "name": "Repository discovery", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 2, "name": "Existing functionality preservation", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 3, "name": "Canonical blueprint validation", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 4, "name": "Database schema and migrations", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 5, "name": "Authentication", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 6, "name": "RBAC and tenant isolation", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 7, "name": "Provider adapters", "status": "BLOCKED" },
+      { "id": 8, "name": "Model routing", "status": "BLOCKED" },
+      { "id": 9, "name": "Tool registry", "status": "MISSING" },
+      { "id": 10, "name": "Dynamic capability discovery", "status": "IMPLEMENTED_UNVERIFIED" },
+      { "id": 11, "name": "Persistent agent factory", "status": "MISSING" },
+      { "id": 12, "name": "Agent collaboration and handoffs", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 13, "name": "Software, AI, and game factories", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 14, "name": "Workflow and asset factories", "status": "BLOCKED" },
+      { "id": 15, "name": "Web3 safety and integrations", "status": "BLOCKED" },
+      { "id": 16, "name": "End-to-end, security, performance, and accessibility", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 17, "name": "Deployment and production read-back", "status": "BLOCKED" }
+    ],
     "blockers": [
       "Automated email verification and delivery-based password recovery are not configured",
       "No managed database backups or automated super-admin identity verification",

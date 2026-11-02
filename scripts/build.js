@@ -20,6 +20,7 @@ async function build() {
     "package.json",
     "server.js",
     "gods.blueprint.yaml",
+    "docs",
     "src",
     "public",
     path.join("scripts", "provision-admin.js")

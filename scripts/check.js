@@ -34,7 +34,35 @@ for (const file of typeScriptFiles) {
 }
 
 try {
-  JSON.parse(fs.readFileSync(path.join(root, "gods.blueprint.yaml"), "utf8"));
+  const blueprint = JSON.parse(fs.readFileSync(path.join(root, "gods.blueprint.yaml"), "utf8"));
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const validStatuses = new Set([
+    "VERIFIED",
+    "IMPLEMENTED_UNVERIFIED",
+    "PARTIALLY_IMPLEMENTED",
+    "MISSING",
+    "BLOCKED",
+    "FAILED",
+    "UNKNOWN",
+    "NOT_APPLICABLE"
+  ]);
+  if (blueprint.project?.version !== manifest.version || blueprint.blueprintVersion !== manifest.version) {
+    throw new Error("Blueprint and package versions must match.");
+  }
+  if (!Array.isArray(blueprint.requirements) || !Array.isArray(blueprint.release?.acceptanceGates)
+    || blueprint.release.acceptanceGates.length !== 17) {
+    throw new Error("The blueprint must contain requirements and all 17 V12 acceptance gates.");
+  }
+  for (const requirement of blueprint.requirements) {
+    if (!requirement.id || !validStatuses.has(requirement.status)) {
+      throw new Error(`Requirement ${requirement.id || "(unknown)"} has an invalid status.`);
+    }
+  }
+  for (const gate of blueprint.release.acceptanceGates) {
+    if (!Number.isInteger(gate.id) || !gate.name || !validStatuses.has(gate.status)) {
+      throw new Error(`Acceptance gate ${gate.id || "(unknown)"} is incomplete or has an invalid status.`);
+    }
+  }
 } catch (error) {
   console.error(`The project blueprint is not valid JSON/YAML-subset data: ${error.message}`);
   process.exitCode = 1;

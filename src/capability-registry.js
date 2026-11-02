@@ -24,23 +24,30 @@ const BASE_CAPABILITIES = [
 ];
 
 function isCapabilityDescriptor(agent) {
+  const score = (value) => value === null || (Number.isFinite(value) && value >= 0 && value <= 1);
+  const optionalLimit = (value) => value === null || (Number.isFinite(value) && value >= 0);
   return agent
     && typeof agent.id === "string"
     && /^[a-z0-9][a-z0-9-]{1,63}$/.test(agent.id)
     && typeof agent.name === "string"
-    && typeof agent.version === "string"
+    && typeof agent.description === "string"
+    && /^[0-9]+\.[0-9]+\.[0-9]+$/.test(agent.version)
     && Array.isArray(agent.capabilities)
     && agent.capabilities.length > 0
-    && agent.capabilities.every((capability) => typeof capability === "string")
+    && agent.capabilities.every((capability) => typeof capability === "string" && capability.length <= 100)
     && Array.isArray(agent.keywords)
     && agent.keywords.every((keyword) => typeof keyword === "string" && keyword.trim().length >= 2)
-    && Array.isArray(agent.domains)
-    && Array.isArray(agent.supportedLanguages)
-    && Array.isArray(agent.availableTools)
-    && Array.isArray(agent.securityPermissions)
-    && Array.isArray(agent.providerRequirements)
-    && typeof agent.availability === "string"
-    && typeof agent.deploymentStatus === "string";
+    && ["domains", "supportedFrameworks", "supportedLanguages", "availableTools", "providerRequirements", "modelRequirements", "securityPermissions", "dependencies", "performanceHistory"].every((field) => Array.isArray(agent[field]))
+    && ["domains", "supportedFrameworks", "supportedLanguages", "availableTools", "providerRequirements", "modelRequirements", "securityPermissions", "dependencies"].every((field) => agent[field].every((value) => typeof value === "string"))
+    && ["inputSchema", "outputSchema"].every((field) => agent[field] && typeof agent[field] === "object" && !Array.isArray(agent[field]))
+    && score(agent.evaluationScore)
+    && score(agent.reliabilityScore)
+    && optionalLimit(agent.estimatedCost)
+    && optionalLimit(agent.costLimit)
+    && optionalLimit(agent.executionLimit)
+    && ["unreviewed", "low", "medium", "high", "critical"].includes(agent.securityClassification)
+    && ["available", "catalog-only", "unavailable"].includes(agent.availability)
+    && ["deployed", "not-deployed", "isolated-development", "retired"].includes(agent.deploymentStatus);
 }
 
 class AgentCapabilityRegistry {
@@ -78,8 +85,14 @@ class AgentCapabilityRegistry {
       .sort((left, right) => {
         const leftAvailable = left.availability === "available" ? 1 : 0;
         const rightAvailable = right.availability === "available" ? 1 : 0;
+        const leftDeployed = left.deploymentStatus === "deployed" ? 1 : 0;
+        const rightDeployed = right.deploymentStatus === "deployed" ? 1 : 0;
         return rightAvailable - leftAvailable
+          || rightDeployed - leftDeployed
           || (right.evaluationScore ?? -1) - (left.evaluationScore ?? -1)
+          || (right.reliabilityScore ?? -1) - (left.reliabilityScore ?? -1)
+          || (left.estimatedCost ?? Infinity) - (right.estimatedCost ?? Infinity)
+          || left.securityPermissions.length - right.securityPermissions.length
           || left.id.localeCompare(right.id);
       })[0] || null;
   }
