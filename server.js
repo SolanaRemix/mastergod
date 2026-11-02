@@ -146,15 +146,16 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
       }
 
       if (request.method === "GET" && url.pathname === "/api/health") {
+        const persistenceReady = await store.ping();
         return sendJson(response, 200, {
-          status: "VERIFIED",
+          status: persistenceReady ? "VERIFIED" : "FAILED",
           application: "available",
-          persistence: "local-file-store",
+          persistence: persistenceReady ? "sqlite" : "FAILED",
           authentication: "ENABLED",
           aiProviders: "BLOCKED",
           productionReady: false,
           productionBlockers: [
-            "User, session, and project data use a local JSON file store, not a transactional database.",
+            "SQLite is local embedded storage; managed multi-instance database operations and backups are not configured.",
             "Authentication rate limits are process-local and are not shared across server instances.",
             "Email ownership verification, password reset, and explicit administrator provisioning are not configured.",
             "No AI provider or isolated agent execution worker is configured."

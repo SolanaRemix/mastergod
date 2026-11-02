@@ -20,7 +20,7 @@
     {
       "id": "REQ-ORCHESTRATION-001",
       "description": "Project task contracts and dependency-aware task states are retained for review.",
-      "status": "IMPLEMENTED_UNVERIFIED"
+      "status": "PARTIALLY_IMPLEMENTED"
     },
     {
       "id": "REQ-PROVIDERS-001",
@@ -29,23 +29,23 @@
     },
     {
       "id": "REQ-IDENTITY-001",
-      "description": "Users authenticate and receive server-enforced project ownership; administrator provisioning remains pending.",
-      "status": "PARTIALLY_IMPLEMENTED"
+      "description": "Users authenticate and receive server-enforced project ownership, persisted in a local SQLite database; administrator provisioning remains pending.",
+      "status": "IMPLEMENTED_UNVERIFIED"
     }
   ],
   "runtime": {
     "language": "JavaScript",
-    "minimumNodeVersion": "20",
+    "minimumNodeVersion": "22.13.0",
     "dependencies": [],
-    "persistence": "Local JSON user, session, and project records with per-project YAML-subset blueprints"
+    "persistence": "SQLite users, sessions, and project records with one-time import from legacy JSON files"
   },
   "release": {
     "productionReady": false,
     "blockers": [
-      "No transactional database, email verification, password recovery, or administrator provisioning",
+      "No managed database backups, email verification, password recovery, or administrator provisioning",
       "Authentication rate limiting is process-local and not shared across instances",
       "No configured AI provider or code-generation workers",
-      "No database, external integrations, or deployment adapter"
+      "No external integrations or deployment adapter"
     ]
   }
 }

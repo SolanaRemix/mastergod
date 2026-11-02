@@ -10,11 +10,13 @@ const { createServer } = require("../server");
 let directory;
 let server;
 let baseUrl;
+let projectStore;
 
 before(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), "gods-test-"));
   const application = createServer({ dataDir: directory });
   server = application.server;
+  projectStore = application.store;
   await Promise.all([application.store.initialize(), application.authStore.initialize()]);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -39,6 +41,7 @@ async function registerAccount(email) {
 
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
+  await projectStore.close();
   await fs.rm(directory, { recursive: true, force: true });
 });
 
@@ -96,6 +99,15 @@ test("agent catalog declares complete contracts without overstating provider exe
     assert.ok(agent.securityConstraints.length > 0);
   }
   assert.equal(agents.find((agent) => agent.id === "frontend-engineer").execution, "provider");
+});
+
+test("health reports the initialized SQLite persistence adapter", async () => {
+  const response = await fetch(`${baseUrl}/api/health`);
+  assert.equal(response.status, 200);
+  const health = await response.json();
+  assert.equal(health.persistence, "sqlite");
+  assert.equal(health.authentication, "ENABLED");
+  assert.equal(health.productionReady, false);
 });
 
 test("registration creates a user account and an opaque, HttpOnly session cookie", async () => {
@@ -191,8 +203,7 @@ test("project creation, approval, blueprint download, and persistence work end t
   assert.equal(blueprint.requirements.length, 1);
   assert.equal(blueprint.tasks[0].status, "BLOCKED");
 
-  const projectFile = path.join(directory, "projects", project.id, "project.json");
-  assert.equal(JSON.parse(await fs.readFile(projectFile, "utf8")).status, "APPROVED_PLAN");
+  assert.equal((await projectStore.get(project.id)).status, "APPROVED_PLAN");
 });
 
 test("project data is private to its owner and unauthenticated access is denied", async () => {
@@ -245,4 +256,68 @@ test("project endpoints reject invalid content types and unmatched decisions", a
     body: JSON.stringify({ decisions: [] })
   });
   assert.equal(invalidApproval.status, 400);
+});
+
+test("SQLite migration imports legacy owned records once and leaves unowned projects private", async () => {
+  const legacyDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "gods-migration-"));
+  const user = {
+    id: "legacy-user",
+    email: "legacy@example.com",
+    role: "user",
+    salt: "11223344556677889900aabbccddeeff",
+    passwordHash: "a".repeat(128),
+    createdAt: new Date().toISOString()
+  };
+  const session = {
+    tokenHash: "b".repeat(64),
+    userId: user.id,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    createdAt: new Date().toISOString()
+  };
+  const ownedProject = {
+    id: "a".repeat(32),
+    ownerId: user.id,
+    title: "Keep my project",
+    status: "DRAFT",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    blueprint: {}
+  };
+  const unownedProject = {
+    ...ownedProject,
+    id: "c".repeat(32),
+    ownerId: undefined
+  };
+
+  await fs.mkdir(path.join(legacyDirectory, "projects", ownedProject.id), { recursive: true });
+  await fs.mkdir(path.join(legacyDirectory, "projects", unownedProject.id), { recursive: true });
+  await fs.writeFile(path.join(legacyDirectory, "auth.json"), JSON.stringify({
+    users: [user],
+    sessions: [session]
+  }));
+  await fs.writeFile(path.join(legacyDirectory, "projects", ownedProject.id, "project.json"), JSON.stringify(ownedProject));
+  await fs.writeFile(path.join(legacyDirectory, "projects", unownedProject.id, "project.json"), JSON.stringify(unownedProject));
+
+  const { AuthStore, ProjectStore } = require("../src/store");
+  const authStore = new AuthStore(legacyDirectory);
+  const migratedProjects = new ProjectStore(legacyDirectory);
+  await Promise.all([authStore.initialize(), migratedProjects.initialize()]);
+
+  assert.equal((await authStore.findUserByEmail("LEGACY@example.com")).id, user.id);
+  assert.equal((await authStore.findUserById(user.id)).role, "user");
+  assert.equal((await authStore.findSession(session.tokenHash)).userId, user.id);
+  assert.equal((await migratedProjects.list(user.id)).length, 1);
+  assert.equal((await migratedProjects.get(unownedProject.id)), null);
+  assert.equal((await fs.stat(path.join(legacyDirectory, "gods.sqlite"))).mode & 0o777, 0o600);
+
+  await fs.writeFile(path.join(legacyDirectory, "projects", unownedProject.id, "project.json"), JSON.stringify({
+    ...unownedProject,
+    ownerId: user.id
+  }));
+  await migratedProjects.close();
+  await migratedProjects.initialize();
+  assert.equal((await migratedProjects.list(user.id)).length, 1);
+
+  await migratedProjects.close();
+  await fs.rm(legacyDirectory, { recursive: true, force: true });
 });

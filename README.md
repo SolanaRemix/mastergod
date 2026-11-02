@@ -4,13 +4,13 @@ A dependency-free, local-first starting point for the GODS project factory. This
 
 ## Run locally
 
-Requires Node.js 20 or later. No package installation is needed.
+Requires Node.js 22.13 or later. No package installation is needed; the application uses Node's built-in SQLite module.
 
 ```sh
 npm start
 ```
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Create an account with a password of at least 12 characters, then sign in to a private workspace. Project records, password hashes, and server-side session hashes are written under `data/` (or `GODS_DATA_DIR` if set). The server binds to `127.0.0.1` by default. Passwords are hashed with Node.js `scrypt`; sessions use random opaque tokens in `HttpOnly`, `SameSite=Strict` cookies and are stored by SHA-256 hash. Production mode also sets `Secure` and uses a `__Host-` cookie.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Create an account with a password of at least 12 characters, then sign in to a private workspace. Accounts, sessions, and projects are stored transactionally in `data/gods.sqlite` (or under `GODS_DATA_DIR`). The server binds to `127.0.0.1` by default. Passwords are hashed with Node.js `scrypt`; sessions use random opaque tokens in `HttpOnly`, `SameSite=Strict` cookies and are stored by SHA-256 hash. Production mode also sets `Secure` and uses a `__Host-` cookie.
 
 ## Current workflow
 
@@ -38,7 +38,7 @@ The browser does not call an AI service. Discovery is deterministic text splitti
 - `POST /api/projects/:id/approve` — approve/edit each requirement.
 - `GET /api/projects/:id/blueprint` — download the project blueprint.
 
-Requests that change state require JSON and are size-limited. State-changing browser requests are checked against the request origin, login and registration have process-local rate limits, and data files use restrictive local permissions. This is still a local-file preview, not production identity infrastructure: storage is not transactional or safe for multiple server processes, rate limits are not distributed, and email verification, password reset, administrator provisioning, database backups, and multi-factor authentication are not implemented. Existing project files without an owner are not exposed through authenticated project APIs. Do not expose this preview to an untrusted network.
+Requests that change state require JSON and are size-limited. State-changing browser requests are checked against the request origin, login and registration have process-local rate limits, and the SQLite database is created with restrictive local permissions. Existing legacy JSON data is imported once at startup; only projects linked to an imported account are retained in the authenticated project database. Original JSON files are left untouched for backup/recovery. Rate limits are not distributed, and email verification, password reset, administrator provisioning, managed database backups, and multi-factor authentication are not implemented. Do not expose this preview to an untrusted network.
 
 ## Validation
 
@@ -48,4 +48,4 @@ npm test
 
 ## Delivery status
 
-The implemented local planning workflow, password authentication, session revocation, and per-account project isolation have focused automated coverage. The complete mission is **not production-ready**: model/provider adapters, agent execution, code generation, a transactional database, administrator provisioning, email verification/recovery, integrations, tests of generated applications, and verified deployment are not present. The authoritative baseline and blockers are listed in [`gods.blueprint.yaml`](gods.blueprint.yaml); no external connection or successful deployment is claimed.
+The implemented local planning workflow, SQLite persistence, password authentication, session revocation, and per-account project isolation have focused automated coverage. The complete mission is **not production-ready**: model/provider adapters, agent execution, code generation, administrator provisioning, email verification/recovery, distributed rate limiting, managed backups, integrations, tests of generated applications, and verified deployment are not present. The authoritative baseline and blockers are listed in [`gods.blueprint.yaml`](gods.blueprint.yaml); no external connection or successful deployment is claimed.
