@@ -96,17 +96,16 @@ function projectTypeFor(project: BlueprintProject): string {
 
 function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations: boolean, hasAssets: boolean, requestText = "") {
   const tasks = [
-    { key: "discovery", title: "Understand approved requirements with Product Discovery", agentId: "product-discovery", capability: "product-discovery", dependencies: [] },
-    { key: "architecture", title: "Architecture and technical blueprint", agentId: "systems-architect", capability: "system-architecture", dependencies: ["discovery"] },
-    { key: "ux", title: "User journeys and accessible UX", agentId: "ux-research", capability: "user-experience", dependencies: ["discovery"] },
-    { key: "database", title: "Data model and persistence design", agentId: "database-engineer", capability: "data-modeling", dependencies: ["architecture", "discovery"] }
+    { key: "architecture", title: "Architecture and technical blueprint", agentId: "systems-architect", capability: "system-architecture", dependencies: [] },
+    { key: "ux", title: "User journeys and accessible UX", agentId: "ux-research", capability: "user-experience", dependencies: [] },
+    { key: "database", title: "Data model and persistence design", agentId: "database-engineer", capability: "data-modeling", dependencies: ["architecture"] }
   ];
   if (hasAuth) tasks.push({
     key: "authentication",
     title: "Roles, identity, and permissions design",
     agentId: "authentication",
     capability: "authentication-design",
-    dependencies: ["architecture", "database", "discovery"]
+    dependencies: ["architecture", "database"]
   });
   const domainAgent = projectType === "conversational" ? "model-router" : "backend-engineer";
   const includeIntegrations = hasIntegrations || projectType === "ecommerce" || projectType === "booking";
@@ -125,42 +124,42 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
               : "Core application workflows",
     agentId: domainAgent,
     capability: projectType === "conversational" ? "model-routing" : "backend-development",
-    dependencies: ["architecture", "database", "discovery"]
+    dependencies: ["architecture", "database"]
   });
   tasks.push({
     key: "ui",
     title: "Page and component design",
     agentId: "ui-generator",
     capability: "ui-generation",
-    dependencies: ["architecture", "ux", "discovery"]
+    dependencies: ["architecture", "ux"]
   });
   tasks.push({
     key: "frontend",
     title: projectType === "game" ? "Game interface and controls" : "Interactive frontend implementation",
     agentId: "frontend-engineer",
     capability: "frontend-development",
-    dependencies: ["domain", "ui", "discovery"]
+    dependencies: ["domain", "ui"]
   });
   tasks.push({
     key: "code-generation",
     title: "Generate editable request-specific frontend prototype files",
     agentId: "code-generation-agent",
     capability: "code-generation",
-    dependencies: ["domain", "ui", "frontend", "discovery"]
+    dependencies: ["domain", "ui", "frontend"]
   });
   if (hasAssets || projectType === "game") tasks.push({
     key: "assets",
     title: "Visual asset requirements and generation plan",
     agentId: "asset-generator",
     capability: "asset-requirements",
-    dependencies: ["ux", "discovery"]
+    dependencies: ["ux"]
   });
   if (includeIntegrations) tasks.push({
     key: "integrations",
     title: projectType === "ecommerce" ? "Payment and commerce integrations" : "External service integration plan",
     agentId: "integration",
     capability: "external-integrations",
-    dependencies: ["domain", "discovery"]
+    dependencies: ["domain"]
   });
   if (/\b(automations?|automate|workflows?|triggers?|schedulers?)\b/i.test(requestText)) {
     tasks.push({
@@ -168,7 +167,7 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
       title: "Workflow triggers, actions, and recovery design",
       agentId: "workflow-automation",
       capability: "workflow-automation",
-      dependencies: ["architecture", "database", "discovery"]
+      dependencies: ["architecture", "database"]
     });
   }
   if (/\b(models?|providers?|LLMs?|AI|artificial intelligence|RAG|agents?)\b/i.test(requestText)
@@ -178,7 +177,7 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
       title: "AI model capabilities and routing design",
       agentId: "model-router",
       capability: "model-routing",
-      dependencies: ["architecture", "discovery"]
+      dependencies: ["architecture"]
     });
   }
   tasks.push(
@@ -187,19 +186,26 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
       title: "Automated acceptance and integration tests",
       agentId: "testing",
       capability: "test-engineering",
-      dependencies: ["domain", "frontend", "code-generation", "discovery", ...(includeIntegrations ? ["integrations"] : []), ...(tasks.some((task) => task.key === "workflow") ? ["workflow"] : [])]
+      dependencies: ["domain", "frontend", "code-generation", ...(includeIntegrations ? ["integrations"] : []), ...(tasks.some((task) => task.key === "workflow") ? ["workflow"] : [])]
     },
-    { key: "security", title: "Security and authorization review", agentId: "security", capability: "security-review", dependencies: ["testing", "discovery", ...(hasAuth ? ["authentication"] : [])] },
-    { key: "accessibility", title: "Keyboard, screen-reader, and responsive verification", agentId: "accessibility", capability: "accessibility-review", dependencies: ["frontend", "discovery"] },
-    { key: "documentation", title: "User and operator documentation", agentId: "documentation", capability: "documentation", dependencies: ["testing", "discovery"] },
+    { key: "security", title: "Security and authorization review", agentId: "security", capability: "security-review", dependencies: ["testing", ...(hasAuth ? ["authentication"] : [])] },
+    { key: "accessibility", title: "Keyboard, screen-reader, and responsive verification", agentId: "accessibility", capability: "accessibility-review", dependencies: ["frontend"] },
+    { key: "documentation", title: "User and operator documentation", agentId: "documentation", capability: "documentation", dependencies: ["testing"] },
     {
       key: "release",
       title: "Release readiness and deployment checks",
       agentId: "release-manager",
       capability: "release-management",
-      dependencies: ["security", "accessibility", "documentation", "discovery"]
+      dependencies: ["security", "accessibility", "documentation"]
     }
   );
+  tasks.push({
+    key: "discovery",
+    title: "Understand approved requirements with Product Discovery",
+    agentId: "product-discovery",
+    capability: "product-discovery",
+    dependencies: []
+  });
   return tasks;
 }
 

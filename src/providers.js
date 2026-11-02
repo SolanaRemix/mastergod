@@ -51,6 +51,7 @@ class ProviderError extends Error {
 }
 
 function encryptionKey(value = process.env.GODS_SECRET_KEY) {
+  if (Buffer.isBuffer(value) && value.length === 32) return value;
   if (typeof value !== "string" || !value) {
     throw new ProviderError("SECRET_KEY_MISSING", "Provider credential encryption is not configured.");
   }
@@ -84,8 +85,10 @@ function isPrivateAddress(address) {
       || (a === 203 && b === 0 && c === 113);
   }
   if (!net.isIPv6(normalized)) return true;
-  if (normalized === "::" || normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd")
-    || /^fe[89ab]/.test(normalized)) return true;
+  if (normalized === "::" || normalized.startsWith("::") || normalized.startsWith("fc") || normalized.startsWith("fd")
+    || /^fe[89ab]/.test(normalized) || normalized.startsWith("fec")
+    || normalized.startsWith("ff") || normalized.startsWith("2001:db8")
+    || normalized.startsWith("2002:") || normalized.startsWith("64:ff9b:")) return true;
   if (normalized.startsWith("::ffff:")) {
     const mapped = normalized.slice(7);
     if (net.isIPv4(mapped)) return isPrivateAddress(mapped);
@@ -200,12 +203,34 @@ function retryDelay(response, attempt, random = Math.random) {
 }
 
 async function readJsonResponse(response) {
-  const text = await response.text();
-  if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES) {
-    throw new ProviderError("PROVIDER_INVALID_RESPONSE", "Provider response exceeded the supported size.");
+  let bytes;
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let size = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MAX_RESPONSE_BYTES) {
+          await reader.cancel();
+          throw new ProviderError("PROVIDER_INVALID_RESPONSE", "Provider response exceeded the supported size.");
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    bytes = Buffer.concat(chunks, size);
+  } else {
+    bytes = Buffer.from(await response.text());
+    if (bytes.length > MAX_RESPONSE_BYTES) {
+      throw new ProviderError("PROVIDER_INVALID_RESPONSE", "Provider response exceeded the supported size.");
+    }
   }
   try {
-    return JSON.parse(text);
+    return JSON.parse(bytes.toString("utf8"));
   } catch {
     throw new ProviderError("PROVIDER_INVALID_JSON", "Provider response was not valid JSON.");
   }
@@ -269,7 +294,7 @@ class OpenAICompatibleAdapter {
     }
   }
 
-  async complete(configuration, { model, messages, jsonSchema, signal }) {
+  async complete(configuration, { model, messages, jsonSchema, signal, timeoutMs }) {
     const requestBody = { model, messages };
     if (jsonSchema) {
       requestBody.response_format = {
@@ -283,7 +308,8 @@ class OpenAICompatibleAdapter {
         response = await this.request(configuration.endpoint, "chat/completions", configuration.apiKey, {
           method: "POST",
           body: requestBody,
-          signal
+          signal,
+          timeoutMs
         });
       } catch (error) {
         if (!error.retryable || attempt === MAX_RETRIES - 1) throw error;

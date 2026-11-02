@@ -76,7 +76,40 @@
             <button class="primary-button" type="submit"><span>Make my project plan</span><span aria-hidden="true">→</span></button>
           </div>
         </form>
-        <p class="notice" role="note">This starter does not use AI yet. It separates your request into editable statements locally, and will clearly flag work that needs an AI provider.</p>
+        <p class="notice" role="note">Requirement drafting stays local. Provider-backed Product Discovery is optional and remains blocked until you connect a provider.</p>
+      </section>
+
+      <section id="provider-settings" class="glass-panel flash-glow-card provider-settings" data-glow="blue" aria-labelledby="provider-heading">
+        <div class="step-heading">
+          <span class="step-number">🔌</span>
+          <div>
+            <h2 id="provider-heading">Connect an AI provider</h2>
+            <p>Optional. Add your provider details to run Product Discovery. Your key is encrypted on this server and never shown again.</p>
+          </div>
+        </div>
+        <p class="notice" role="note">When you run Product Discovery, your approved request is sent to the provider you configure. Saving a key does not send project data. Provider charges and data policies are controlled by that provider.</p>
+        <form id="provider-settings-form" class="provider-settings-form">
+          <label for="provider-endpoint">Provider API base URL</label>
+          <input id="provider-endpoint" class="glass-input" name="endpoint" type="url" value="https://api.openai.com/v1" maxlength="500" required>
+          <label for="provider-api-key">API key</label>
+          <input id="provider-api-key" class="glass-input" name="apiKey" type="password" autocomplete="new-password" maxlength="4096" required>
+          <label for="provider-model">Model name</label>
+          <input id="provider-model" class="glass-input" name="model" type="text" maxlength="128" required placeholder="Enter the exact model ID supported by your provider">
+          <div class="form-footer">
+            <span id="provider-status" class="helper-text" role="status">Checking provider configuration…</span>
+            <button id="save-provider-button" class="primary-button" type="submit">Save encrypted provider settings</button>
+          </div>
+        </form>
+        <div class="provider-tools">
+          <label for="provider-model-list">Available models</label>
+          <select id="provider-model-list" class="glass-select">
+            <option value="">Save settings before discovering models</option>
+          </select>
+          <button id="discover-provider-models" class="secondary-button" type="button">Discover models</button>
+          <button id="check-provider-health" class="secondary-button" type="button">Check connection</button>
+          <button id="remove-provider" class="secondary-button" type="button">Remove saved key</button>
+        </div>
+        <p class="helper-text">Private or local provider addresses are blocked unless the server operator explicitly enables <code>GODS_ALLOW_LOCAL_PROVIDER=1</code>. Use only providers you trust with your project information.</p>
       </section>
 
       <section id="review-section" class="glass-panel flash-glow-card hidden" data-glow="purple" aria-labelledby="review-heading">

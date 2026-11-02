@@ -15,6 +15,15 @@ const appWorkspace = document.querySelector("#app-workspace");
 const loginForm = document.querySelector("#login-form");
 const registerForm = document.querySelector("#register-form");
 const signoutButton = document.querySelector("#signout-button");
+const providerSettingsForm = document.querySelector("#provider-settings-form");
+const providerApiKeyInput = document.querySelector("#provider-api-key");
+const providerModelInput = document.querySelector("#provider-model");
+const providerEndpointInput = document.querySelector("#provider-endpoint");
+const providerStatus = document.querySelector("#provider-status");
+const providerModelList = document.querySelector("#provider-model-list");
+const discoverProviderModelsButton = document.querySelector("#discover-provider-models");
+const checkProviderHealthButton = document.querySelector("#check-provider-health");
+const removeProviderButton = document.querySelector("#remove-provider");
 const gameForm = document.querySelector("#game-form");
 const gamePromptInput = document.querySelector("#game-prompt");
 const gameWorkspace = document.querySelector("#game-workspace");
@@ -286,7 +295,7 @@ function renderProject(project) {
         if (tasks.length) {
           createGraph.classList.add("hidden");
           executionDescription.textContent = tasks.some((task) => task.status === "QUEUED")
-            ? "Tasks are queued for registered deterministic local workers; outcomes are recorded with evidence."
+            ? "Tasks are queued for registered workers. Product Discovery needs a configured provider; every result keeps its own evidence status."
             : "The graph is persisted; review each task's blocker and execution record.";
           renderAgentTasks(project, executionTasks, tasks);
           api(`/api/projects/${encodeURIComponent(project.id)}/execution`)
@@ -367,8 +376,51 @@ function renderAgentTasks(project, container, tasks) {
       reason.textContent = task.blockedReason;
       card.append(reason);
     }
+    if (task.result) {
+      const savedResult = document.createElement("details");
+      savedResult.className = "agent-task-events";
+      const resultSummary = document.createElement("summary");
+      resultSummary.textContent = task.agentId === "requirements-intelligence"
+        ? "Review Product Discovery draft"
+        : "Review saved task output";
+      const resultContent = document.createElement("div");
+      const resultStatus = document.createElement("p");
+      resultStatus.className = "helper-text";
+      resultStatus.textContent = `Result status: ${task.result.status}.`;
+      resultContent.append(resultStatus);
+      (task.result.findings || []).forEach((finding) => {
+        if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
+          const item = document.createElement("p");
+          item.textContent = String(finding);
+          resultContent.append(item);
+          return;
+        }
+        const definitionList = document.createElement("dl");
+        definitionList.className = "task-result-list";
+        Object.entries(finding).forEach(([key, value]) => {
+          const term = document.createElement("dt");
+          term.textContent = key.replace(/([A-Z])/g, " $1").replace(/^./, (character) => character.toUpperCase());
+          const description = document.createElement("dd");
+          if (Array.isArray(value)) {
+            const list = document.createElement("ul");
+            value.forEach((entry) => {
+              const item = document.createElement("li");
+              item.textContent = String(entry);
+              list.append(item);
+            });
+            description.append(list);
+          } else {
+            description.textContent = String(value);
+          }
+          definitionList.append(term, description);
+        });
+        resultContent.append(definitionList);
+      });
+      savedResult.append(resultSummary, resultContent);
+      card.append(savedResult);
+    }
     if (["QUEUED", "BLOCKED", "FAILED"].includes(task.status)) {
-      const runTask = addButton("Run specialist task", "primary-button");
+      const runTask = addButton(task.title.includes("Product Discovery") ? "Run Product Discovery" : "Run specialist task", "primary-button");
       runTask.addEventListener("click", async () => {
         runTask.disabled = true;
         try {
@@ -380,6 +432,10 @@ function renderAgentTasks(project, container, tasks) {
           renderAgentTasks(project, container, latest);
           liveRegion.textContent = `${task.agentId} completed or updated its task. Review the saved output and evidence.`;
         } catch (error) {
+          try {
+            const { tasks: latest } = await api(`/api/projects/${encodeURIComponent(project.id)}/tasks`);
+            renderAgentTasks(project, container, latest);
+          } catch {}
           showError(error.message);
         } finally {
           runTask.disabled = false;
@@ -1094,8 +1150,100 @@ function showWorkspace(user) {
   signoutButton.classList.remove("hidden");
   healthLabel.textContent = `Signed in · ${user.email}`;
   clearError();
-  Promise.all([loadProjects(), loadGames()]).catch((error) => showError(error.message));
+  Promise.all([loadProjects(), loadGames(), loadProviderSettings()]).catch((error) => showError(error.message));
 }
+
+async function loadProviderSettings() {
+  const { providers } = await api("/api/providers");
+  const provider = providers.find((item) => item.provider_id === "openai-compatible");
+  providerStatus.textContent = provider?.hasKey
+    ? "Encrypted provider key is saved. The key cannot be viewed."
+    : "No provider key is saved. Product Discovery will remain blocked.";
+}
+
+providerSettingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearError();
+  const button = providerSettingsForm.querySelector('button[type="submit"]');
+  const data = new FormData(providerSettingsForm);
+  button.disabled = true;
+  try {
+    const result = await api("/api/providers/openai-compatible/credential", {
+      method: "PUT",
+      body: JSON.stringify({
+        apiKey: data.get("apiKey"),
+        endpoint: data.get("endpoint"),
+        model: data.get("model")
+      })
+    });
+    providerApiKeyInput.value = "";
+    providerStatus.textContent = "Provider key encrypted and saved. Check the connection before running Product Discovery.";
+    liveRegion.textContent = result.provider.hasKey ? "Provider settings saved." : "Provider settings were not confirmed.";
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+discoverProviderModelsButton.addEventListener("click", async () => {
+  discoverProviderModelsButton.disabled = true;
+  try {
+    const { models } = await api("/api/providers/openai-compatible/models");
+    providerModelList.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose an available model";
+    providerModelList.append(placeholder);
+    models.forEach((model) => {
+      const option = document.createElement("option");
+      option.value = model.id;
+      option.textContent = model.id;
+      providerModelList.append(option);
+    });
+    providerStatus.textContent = `${models.length} model${models.length === 1 ? "" : "s"} discovered from the configured provider.`;
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    discoverProviderModelsButton.disabled = false;
+  }
+});
+
+providerModelList.addEventListener("change", () => {
+  if (providerModelList.value) providerModelInput.value = providerModelList.value;
+});
+
+checkProviderHealthButton.addEventListener("click", async () => {
+  checkProviderHealthButton.disabled = true;
+  try {
+    const { health, status } = await api("/api/providers/openai-compatible/health", {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+    providerStatus.textContent = health.ok
+      ? `Provider responded in ${health.latencyMs} ms.`
+      : `Connection not verified (${health.error?.code || status}).`;
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    checkProviderHealthButton.disabled = false;
+  }
+});
+
+removeProviderButton.addEventListener("click", async () => {
+  removeProviderButton.disabled = true;
+  try {
+    await api("/api/providers/openai-compatible/credential", { method: "DELETE" });
+    providerStatus.textContent = "Saved provider key removed.";
+    providerModelList.replaceChildren();
+    providerModelInput.value = "";
+    providerApiKeyInput.value = "";
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    removeProviderButton.disabled = false;
+  }
+});
 
 async function submitCredentials(event, endpoint) {
   event.preventDefault();
@@ -1140,6 +1288,8 @@ signoutButton.addEventListener("click", async () => {
     appWorkspace.classList.add("hidden");
     authSection.classList.remove("hidden");
     signoutButton.classList.add("hidden");
+    providerApiKeyInput.value = "";
+    providerStatus.textContent = "Sign in to manage provider settings.";
     projectsList.replaceChildren();
     gamesList.replaceChildren();
     gameWorkspace.classList.add("hidden");
@@ -1195,7 +1345,7 @@ approveButton.addEventListener("click", async () => {
     draftProject = null;
     reviewSection.classList.add("hidden");
     await loadProjects();
-    liveRegion.textContent = `${project.title} plan approved. Build tasks are blocked because no AI provider is configured.`;
+    liveRegion.textContent = `${project.title} plan approved. Local tasks can run; Product Discovery stays blocked until you connect an AI provider.`;
   } catch (error) {
     showError(error.message);
   } finally {

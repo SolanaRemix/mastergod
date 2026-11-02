@@ -150,7 +150,7 @@ function createCoreAgentHandlers(store, { providers } = {}) {
       const requirementIds = requirements.map((requirement) => requirement.id).filter((id) => typeof id === "string");
       switch (agent.id) {
         case "requirements-intelligence":
-          if (providers) return providers.runProductDiscovery({
+          if (providers && input.capability === "product-discovery") return providers.runProductDiscovery({
             ownerId: context.task.ownerId,
             projectId: context.task.projectId,
             task: context.task,

@@ -179,6 +179,10 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .auth-form input, .glass-input, .glass-select { width: 100%; min-height: 44px; padding: 10px 12px; color: var(--text-primary); border: 1px solid rgba(148, 163, 184, .23); border-radius: var(--radius-sm); background: var(--gods-glass-strong); }
 .auth-form .helper-text { line-height: 1.5; }
 .auth-form .primary-button { margin-top: 5px; }
+.provider-settings-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.provider-settings-form label, .provider-tools label { color: #c1cce0; font-size: 12px; }
+.provider-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.provider-tools .glass-select { flex: 1 1 220px; }
 main { width: min(940px, calc(100% - 40px)); margin: 0 auto; }
 .hero { padding: clamp(56px, 10vw, 104px) 0 42px; text-align: center; }
 .eyebrow { margin: 0 0 13px; color: #80dff1; font-size: 11px; font-weight: 700; letter-spacing: .2em; }
@@ -271,6 +275,10 @@ textarea::placeholder { color: #74829b; }
 .agent-task-panel { margin-top: 20px; padding: 16px; border-radius: 14px; }
 .agent-task-panel h4 { margin: 0 0 9px; }
 .agent-task-panel > .helper-text { margin: 0 0 13px; line-height: 1.6; }
+.task-result-list { display: grid; grid-template-columns: minmax(120px, .7fr) minmax(0, 2fr); gap: 8px 14px; margin: 12px 0; overflow-wrap: anywhere; }
+.task-result-list dt { color: #b7c8e3; font-weight: 650; }
+.task-result-list dd { min-width: 0; margin: 0; }
+.task-result-list ul { margin: 0; padding-left: 18px; }
 .agent-task-panel > .primary-button { width: auto; min-height: 40px; }
 .agent-task-list { display: grid; gap: 10px; margin-top: 14px; }
 .agent-task-card { min-width: 0; padding: 14px; border-radius: 12px; }
@@ -324,6 +332,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 22px
   .primary-button { width: 100%; }
   .section-title { align-items: flex-start; flex-direction: column; }
   .auth-forms { grid-template-columns: 1fr; }
+  .task-result-list { grid-template-columns: 1fr; }
   .game-details { grid-template-columns: 1fr; }
   #game-preview { min-height: 300px; }
   .game-refine-row { flex-direction: column; }
