@@ -139,6 +139,14 @@ test("deployment preflight blocks missing credentials, invalid health URLs, and 
   assert.equal(invalidUrl.status, 2);
   assert.match(invalidUrl.stderr, /HTTPS health URL is invalid/);
 
+  const malformedUrl = spawnSync("bash", [script, "preflight"], {
+    encoding: "utf8",
+    env: { ...configuration, GODS_DEPLOY_HEALTH_URL: "https://bad host/?key=do-not-log" }
+  });
+  assert.equal(malformedUrl.status, 2);
+  assert.match(malformedUrl.stderr, /HTTPS health URL is invalid/);
+  assert.equal(malformedUrl.stderr.includes("do-not-log"), false);
+
   const unmetGates = spawnSync("bash", [script, "preflight"], { encoding: "utf8", env: configuration });
   assert.equal(unmetGates.status, 3);
   assert.match(unmetGates.stderr, /project release blueprint still has unmet production gates/);

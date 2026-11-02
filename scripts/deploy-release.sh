@@ -18,7 +18,7 @@ if [[ ! "$GODS_DEPLOY_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] \
   || [[ ! "$GODS_DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] \
   || [[ "/$GODS_DEPLOY_PATH/" == *"/../"* ]] \
   || [[ "$GODS_DEPLOY_PATH" == "/" ]] \
-  || ! node -e 'const url = new URL(process.argv[1]); if (url.protocol !== "https:" || !url.hostname || url.username || url.password) process.exit(1)' "$GODS_DEPLOY_HEALTH_URL"; then
+  || ! node -e 'try { const url = new URL(process.argv[1]); if (url.protocol !== "https:" || !url.hostname || url.username || url.password) process.exit(1) } catch { process.exit(1) }' "$GODS_DEPLOY_HEALTH_URL"; then
   printf 'Deployment BLOCKED: host, user, path, or HTTPS health URL is invalid.\n' >&2
   exit 2
 fi
