@@ -14,8 +14,30 @@ const appWorkspace = document.querySelector("#app-workspace");
 const loginForm = document.querySelector("#login-form");
 const registerForm = document.querySelector("#register-form");
 const signoutButton = document.querySelector("#signout-button");
+const gameForm = document.querySelector("#game-form");
+const gamePromptInput = document.querySelector("#game-prompt");
+const gameWorkspace = document.querySelector("#game-workspace");
+const gameTitle = document.querySelector("#game-title");
+const gameSummary = document.querySelector("#game-summary");
+const gameStatus = document.querySelector("#game-status");
+const gameSpecification = document.querySelector("#game-specification");
+const gameLimitations = document.querySelector("#game-limitations");
+const gamePreview = document.querySelector("#game-preview");
+const gameVersion = document.querySelector("#game-version");
+const gameRefineForm = document.querySelector("#game-refine-form");
+const gameRefinementInput = document.querySelector("#game-refinement");
+const gameSaveStatus = document.querySelector("#game-save-status");
+const gamesList = document.querySelector("#games-list");
+const gameCount = document.querySelector("#game-count");
+const saveGameButton = document.querySelector("#save-game");
+const loadGameSaveButton = document.querySelector("#load-game-save");
+const restartGameButton = document.querySelector("#restart-game");
+const restoreGameVersionButton = document.querySelector("#restore-game-version");
 
 let draftProject = null;
+let activeGame = null;
+let currentGameSave = null;
+let latestPreviewState = null;
 
 function showError(message) {
   errorMessage.textContent = message;
@@ -155,13 +177,235 @@ async function loadProjects() {
   projects.forEach(renderProject);
 }
 
+function renderGames(games) {
+  gamesList.replaceChildren();
+  gameCount.textContent = `${games.length} game${games.length === 1 ? "" : "s"}`;
+  if (games.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "Describe a game above to create your first private game project.";
+    gamesList.append(empty);
+    return;
+  }
+  games.forEach((game) => {
+    const card = document.createElement("article");
+    card.className = "project-card";
+    const header = document.createElement("div");
+    header.className = "project-card-header";
+    const title = document.createElement("h3");
+    title.textContent = game.title;
+    header.append(title, makeTag(game.status));
+    const metadata = document.createElement("p");
+    metadata.className = "project-meta";
+    metadata.textContent = `Version ${game.latestVersion} · Updated ${new Date(game.updatedAt).toLocaleString()}`;
+    const open = document.createElement("button");
+    open.className = "secondary-button";
+    open.type = "button";
+    open.textContent = "Open game";
+    open.addEventListener("click", () => openGame(game.id));
+    card.append(header, metadata, open);
+    gamesList.append(card);
+  });
+}
+
+async function loadGames() {
+  const { games } = await api("/api/games");
+  renderGames(games);
+}
+
+function renderGame(game) {
+  activeGame = game;
+  latestPreviewState = null;
+  gameWorkspace.classList.remove("hidden");
+  gameTitle.textContent = game.title;
+  gameSummary.textContent = game.specification.summary;
+  gameStatus.textContent = `${game.status.replaceAll("_", " ")} · Local deterministic template; not AI-generated or independently QA-verified.`;
+  gameSpecification.replaceChildren();
+  [
+    `Engine: ${game.specification.engine}`,
+    `Gameplay: ${game.specification.gameplayLoop}`,
+    `Controls: ${game.specification.controls.keyboard}; ${game.specification.controls.touch}.`,
+    `Camera: ${game.specification.camera}`,
+    `Difficulty: ${game.specification.difficulty}`
+  ].forEach((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    gameSpecification.append(item);
+  });
+  gameLimitations.textContent = game.specification.unsupportedRequests.length
+    ? `Not generated: ${game.specification.unsupportedRequests.join(", ")}.`
+    : "This game is private and not published. Online services and generated media are unavailable.";
+
+  gameVersion.replaceChildren();
+  game.versions.forEach((version) => {
+    const option = document.createElement("option");
+    option.value = String(version.version);
+    option.textContent = `Version ${version.version} · ${version.changeSummary}`;
+    gameVersion.append(option);
+  });
+  gameVersion.value = String(game.latestVersion);
+  gamePreview.src = `/api/games/${encodeURIComponent(game.id)}/preview?version=${game.latestVersion}`;
+  restoreGameVersionButton.classList.add("hidden");
+  gameSaveStatus.textContent = "";
+  gameWorkspace.scrollIntoView({
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    block: "start"
+  });
+}
+
+async function openGame(id) {
+  clearError();
+  try {
+    const { game } = await api(`/api/games/${encodeURIComponent(id)}`);
+    const { save } = await api(`/api/games/${encodeURIComponent(id)}/save`);
+    currentGameSave = save;
+    renderGame(game);
+    gameSaveStatus.textContent = save ? `Saved ${new Date(save.updatedAt).toLocaleString()}.` : "No saved progress yet.";
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+function postPreviewMessage(message) {
+  gamePreview.contentWindow?.postMessage({ contract: "gods-game-v1", ...message }, "*");
+}
+
+function isValidPreviewState(state) {
+  return state
+    && Number.isFinite(state.x) && state.x >= 18 && state.x <= 782
+    && Number.isFinite(state.y) && state.y >= 18 && state.y <= 432
+    && Number.isInteger(state.score) && state.score >= 0 && state.score <= 1000000
+    && Number.isFinite(state.orbX) && state.orbX >= 12 && state.orbX <= 788
+    && Number.isFinite(state.orbY) && state.orbY >= 12 && state.orbY <= 438;
+}
+
+async function saveGameProgress(state) {
+  if (!activeGame || !isValidPreviewState(state)) throw new Error("Wait for the game preview to finish loading.");
+  const { save } = await api(`/api/games/${encodeURIComponent(activeGame.id)}/save`, {
+    method: "POST",
+    body: JSON.stringify({ state })
+  });
+  currentGameSave = save;
+  gameSaveStatus.textContent = `Progress saved ${new Date(save.updatedAt).toLocaleTimeString()}.`;
+}
+
+window.addEventListener("message", (event) => {
+  if (event.source !== gamePreview.contentWindow
+    || !event.data
+    || event.data.contract !== "gods-game-v1"
+    || event.data.type !== "game-state"
+    || !isValidPreviewState(event.data.state)) return;
+  latestPreviewState = event.data.state;
+});
+
+gamePreview.addEventListener("load", () => {
+  if (currentGameSave?.state) postPreviewMessage({ type: "load-state", state: currentGameSave.state });
+});
+
+gameForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearError();
+  const button = gameForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const { game, limitations } = await api("/api/games", {
+      method: "POST",
+      body: JSON.stringify({ prompt: gamePromptInput.value })
+    });
+    currentGameSave = null;
+    renderGame(game);
+    await loadGames();
+    liveRegion.textContent = `${game.title} created as a private playable game.`;
+    if (limitations.length) gameLimitations.textContent = `Not generated: ${limitations.join(", ")}.`;
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+gameRefineForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!activeGame) return;
+  clearError();
+  const button = gameRefineForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const { game, changeSummary } = await api(`/api/games/${encodeURIComponent(activeGame.id)}/refine`, {
+      method: "POST",
+      body: JSON.stringify({ instruction: gameRefinementInput.value })
+    });
+    currentGameSave = await api(`/api/games/${encodeURIComponent(game.id)}/save`).then((result) => result.save);
+    renderGame(game);
+    await loadGames();
+    gameSaveStatus.textContent = `${changeSummary} A new version was saved.`;
+    gameRefinementInput.value = "";
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+gameVersion.addEventListener("change", () => {
+  if (!activeGame) return;
+  const selectedVersion = Number(gameVersion.value);
+  const version = activeGame.versions.find((item) => item.version === selectedVersion);
+  if (!version) return;
+  gamePreview.src = `/api/games/${encodeURIComponent(activeGame.id)}/preview?version=${selectedVersion}`;
+  restoreGameVersionButton.classList.toggle("hidden", selectedVersion === activeGame.latestVersion);
+});
+
+restartGameButton.addEventListener("click", () => postPreviewMessage({ type: "restart" }));
+
+saveGameButton.addEventListener("click", async () => {
+  try {
+    await saveGameProgress(latestPreviewState);
+  } catch (error) {
+    showError(error.message);
+  }
+});
+
+loadGameSaveButton.addEventListener("click", async () => {
+  if (!activeGame) return;
+  try {
+    const { save } = await api(`/api/games/${encodeURIComponent(activeGame.id)}/save`);
+    if (!save) {
+      gameSaveStatus.textContent = "No saved progress yet.";
+      return;
+    }
+    currentGameSave = save;
+    latestPreviewState = save.state;
+    postPreviewMessage({ type: "load-state", state: save.state });
+    gameSaveStatus.textContent = `Loaded progress saved ${new Date(save.updatedAt).toLocaleString()}.`;
+  } catch (error) {
+    showError(error.message);
+  }
+});
+
+restoreGameVersionButton.addEventListener("click", async () => {
+  if (!activeGame) return;
+  const selectedVersion = Number(gameVersion.value);
+  try {
+    const { game } = await api(`/api/games/${encodeURIComponent(activeGame.id)}/rollback`, {
+      method: "POST",
+      body: JSON.stringify({ version: selectedVersion })
+    });
+    renderGame(game);
+    await loadGames();
+    gameSaveStatus.textContent = `Restored version ${selectedVersion} as version ${game.latestVersion}.`;
+  } catch (error) {
+    showError(error.message);
+  }
+});
+
 function showWorkspace(user) {
   authSection.classList.add("hidden");
   appWorkspace.classList.remove("hidden");
   signoutButton.classList.remove("hidden");
   healthLabel.textContent = `Signed in · ${user.email}`;
   clearError();
-  loadProjects().catch((error) => showError(error.message));
+  Promise.all([loadProjects(), loadGames()]).catch((error) => showError(error.message));
 }
 
 async function submitCredentials(event, endpoint) {
@@ -197,14 +441,22 @@ signoutButton.addEventListener("click", async () => {
   try {
     await api("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
     draftProject = null;
+    activeGame = null;
+    currentGameSave = null;
+    latestPreviewState = null;
     promptInput.value = "";
+    gamePromptInput.value = "";
     requirementList.replaceChildren();
     reviewSection.classList.add("hidden");
     appWorkspace.classList.add("hidden");
     authSection.classList.remove("hidden");
     signoutButton.classList.add("hidden");
     projectsList.replaceChildren();
+    gamesList.replaceChildren();
+    gameWorkspace.classList.add("hidden");
+    gamePreview.removeAttribute("src");
     projectCount.textContent = "0 projects";
+    gameCount.textContent = "0 games";
     healthLabel.textContent = "Local workspace · Sign in required";
     clearError();
     liveRegion.textContent = "You have signed out.";

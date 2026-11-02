@@ -92,6 +92,72 @@
         </div>
       </section>
 
+      <section id="game-studio" class="game-studio glass-panel" aria-labelledby="game-studio-heading">
+        <div class="step-heading">
+          <span class="step-number">🎮</span>
+          <div>
+            <h2 id="game-studio-heading">GODS AI Game Studio</h2>
+            <p>Describe a game in your own words. GODS will make a private, playable 2D Canvas game you can refine and save.</p>
+          </div>
+        </div>
+        <form id="game-form">
+          <label class="sr-only" for="game-prompt">Describe the game you want to make</label>
+          <textarea id="game-prompt" name="prompt" minlength="10" maxlength="5000" required placeholder="For example: Make a neon space game where I steer around and collect glowing energy orbs."></textarea>
+          <div class="form-footer">
+            <span class="helper-text">Runs locally in a restricted preview. Generation uses a deterministic template, not an AI provider.</span>
+            <button class="primary-button" type="submit">Create a playable game <span aria-hidden="true">→</span></button>
+          </div>
+        </form>
+        <p class="notice">Current starter support: original 2D single-player collect-the-orb games with keyboard and touch controls. 3D, multiplayer, generated media, publishing, and external services are not configured.</p>
+        <div id="game-workspace" class="hidden">
+          <div class="game-details">
+            <div>
+              <p class="eyebrow">YOUR GAME PLAN</p>
+              <h3 id="game-title"></h3>
+              <p id="game-summary" class="project-summary"></p>
+              <p id="game-status" class="project-notice"></p>
+              <ul id="game-specification" class="game-specification"></ul>
+              <p id="game-limitations" class="helper-text"></p>
+            </div>
+            <div class="game-preview-panel">
+              <div class="game-preview-controls">
+                <label for="game-version">Version</label>
+                <select id="game-version"></select>
+                <button id="restart-game" class="secondary-button" type="button">Restart</button>
+              </div>
+              <iframe id="game-preview" title="Restricted game preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+              <div class="game-save-controls">
+                <button id="save-game" class="secondary-button" type="button">Save progress</button>
+                <button id="load-game-save" class="secondary-button" type="button">Load saved progress</button>
+                <button id="restore-game-version" class="secondary-button hidden" type="button">Restore this version</button>
+                <span id="game-save-status" class="helper-text"></span>
+              </div>
+            </div>
+          </div>
+          <form id="game-refine-form" class="game-refine-form">
+            <label for="game-refinement">Refine your game</label>
+            <div class="game-refine-row">
+              <input id="game-refinement" name="instruction" maxlength="500" required placeholder="Try: Make it easier">
+              <button class="primary-button" type="submit">Save a new version</button>
+            </div>
+            <p class="helper-text">Supported edits change the difficulty. Older versions stay available and restore as a new version.</p>
+          </form>
+        </div>
+      </section>
+
+      <section id="games-section" class="projects-section" aria-labelledby="games-heading">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">YOUR CREATOR STUDIO</p>
+            <h2 id="games-heading">My games</h2>
+          </div>
+          <span id="game-count" class="count-pill">0 games</span>
+        </div>
+        <div id="games-list" class="projects-list">
+          <p class="empty-state">Your private game projects will appear here after you sign in.</p>
+        </div>
+      </section>
+
       <section id="projects-section" class="projects-section" aria-labelledby="projects-heading">
         <div class="section-title">
           <div>
@@ -109,6 +175,6 @@
       <div id="live-region" class="sr-only" aria-live="polite"></div>
       <p id="error-message" class="error-message hidden" role="alert"></p>
     </main>
-    <footer><span>Master GODS · Beginner-first project planning</span><span>Local preview · Not production ready</span></footer>
+    <footer><span>Master GODS · Beginner-first project planning and game creation</span><span>Local preview · Not production ready</span></footer>
   </body>
 </html>

@@ -68,6 +68,36 @@ class PersistenceStore {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS password_resets_expires_at ON password_resets(expires_at);
+      CREATE TABLE IF NOT EXISTS game_projects (
+        id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 32),
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        original_prompt TEXT NOT NULL,
+        specification TEXT NOT NULL CHECK (json_valid(specification)),
+        status TEXT NOT NULL,
+        latest_version INTEGER NOT NULL CHECK (latest_version >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS game_projects_owner_updated_at
+        ON game_projects(owner_id, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS game_versions (
+        game_id TEXT NOT NULL REFERENCES game_projects(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL CHECK (version >= 1),
+        specification TEXT NOT NULL CHECK (json_valid(specification)),
+        source TEXT NOT NULL,
+        status TEXT NOT NULL,
+        change_summary TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (game_id, version)
+      );
+      CREATE TABLE IF NOT EXISTS game_saves (
+        game_id TEXT NOT NULL REFERENCES game_projects(id) ON DELETE CASCADE,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        state TEXT NOT NULL CHECK (json_valid(state)),
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (game_id, owner_id)
+      );
       CREATE TABLE IF NOT EXISTS migrations (
         version INTEGER PRIMARY KEY NOT NULL,
         applied_at TEXT NOT NULL
@@ -331,6 +361,150 @@ class PersistenceStore {
     return project;
   }
 
+  async createGameProject(game) {
+    await this.initialize();
+    this.transaction(() => {
+      this.database.prepare(`
+        INSERT INTO game_projects (
+          id, owner_id, title, original_prompt, specification, status, latest_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        game.id,
+        game.ownerId,
+        game.title,
+        game.originalPrompt,
+        JSON.stringify(game.specification),
+        game.status,
+        game.latestVersion,
+        game.createdAt,
+        game.updatedAt
+      );
+      const version = game.versions[0];
+      this.database.prepare(`
+        INSERT INTO game_versions (
+          game_id, version, specification, source, status, change_summary, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        game.id,
+        version.version,
+        JSON.stringify(version.specification),
+        version.source,
+        version.status,
+        version.changeSummary,
+        version.createdAt
+      );
+    });
+    return game;
+  }
+
+  async listGameProjects(ownerId) {
+    await this.initialize();
+    return this.database.prepare(`
+      SELECT id, title, status, latest_version AS latestVersion, created_at AS createdAt, updated_at AS updatedAt
+      FROM game_projects WHERE owner_id = ? ORDER BY updated_at DESC
+    `).all(ownerId);
+  }
+
+  async getGameProject(id, ownerId) {
+    await this.initialize();
+    const row = this.database.prepare(`
+      SELECT id, owner_id AS ownerId, title, original_prompt AS originalPrompt,
+        specification, status, latest_version AS latestVersion,
+        created_at AS createdAt, updated_at AS updatedAt
+      FROM game_projects WHERE id = ? AND owner_id = ?
+    `).get(id, ownerId);
+    if (!row) return null;
+    const versions = this.database.prepare(`
+      SELECT version, status, change_summary AS changeSummary, created_at AS createdAt
+      FROM game_versions WHERE game_id = ? ORDER BY version
+    `).all(id);
+    return {
+      ...row,
+      specification: JSON.parse(row.specification),
+      versions
+    };
+  }
+
+  async getGameVersion(id, ownerId, versionNumber) {
+    await this.initialize();
+    const row = this.database.prepare(`
+      SELECT versions.version, versions.specification, versions.source, versions.status,
+        versions.change_summary AS changeSummary, versions.created_at AS createdAt
+      FROM game_versions AS versions
+      JOIN game_projects AS games ON games.id = versions.game_id
+      WHERE games.id = ? AND games.owner_id = ? AND versions.version = ?
+    `).get(id, ownerId, versionNumber);
+    if (!row) return null;
+    return { ...row, specification: JSON.parse(row.specification) };
+  }
+
+  async appendGameVersion(id, ownerId, versionData) {
+    await this.initialize();
+    return this.transaction(() => {
+      const game = this.database.prepare(`
+        SELECT latest_version AS latestVersion
+        FROM game_projects WHERE id = ? AND owner_id = ?
+      `).get(id, ownerId);
+      if (!game) return null;
+      const version = game.latestVersion + 1;
+      const createdAt = new Date().toISOString();
+      this.database.prepare(`
+        INSERT INTO game_versions (
+          game_id, version, specification, source, status, change_summary, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        version,
+        JSON.stringify(versionData.specification),
+        versionData.source,
+        versionData.status,
+        versionData.changeSummary,
+        createdAt
+      );
+      this.database.prepare(`
+        UPDATE game_projects SET title = ?, specification = ?, status = ?,
+          latest_version = ?, updated_at = ?
+        WHERE id = ? AND owner_id = ?
+      `).run(
+        versionData.specification.name,
+        JSON.stringify(versionData.specification),
+        versionData.status,
+        version,
+        createdAt,
+        id,
+        ownerId
+      );
+      return version;
+    });
+  }
+
+  async getGameSave(id, ownerId) {
+    await this.initialize();
+    const row = this.database.prepare(`
+      SELECT saves.state, saves.updated_at AS updatedAt
+      FROM game_saves AS saves
+      JOIN game_projects AS games ON games.id = saves.game_id
+      WHERE games.id = ? AND games.owner_id = ? AND saves.owner_id = ?
+    `).get(id, ownerId, ownerId);
+    return row ? { state: JSON.parse(row.state), updatedAt: row.updatedAt } : null;
+  }
+
+  async saveGameState(id, ownerId, state) {
+    await this.initialize();
+    return this.transaction(() => {
+      const game = this.database.prepare(`
+        SELECT 1 FROM game_projects WHERE id = ? AND owner_id = ?
+      `).get(id, ownerId);
+      if (!game) return false;
+      this.database.prepare(`
+        INSERT INTO game_saves (game_id, owner_id, state, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(game_id, owner_id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at
+      `).run(id, ownerId, JSON.stringify(state), new Date().toISOString());
+      return true;
+    });
+  }
+
   async ping() {
     await this.initialize();
     return this.database.prepare("SELECT 1 AS ready").get().ready === 1;
@@ -384,4 +558,21 @@ class ProjectStore {
   getAdminSummary() { return this.persistence.getAdminSummary(); }
 }
 
-module.exports = { AuthStore, PersistenceStore, ProjectStore };
+class GameStore {
+  constructor(root) {
+    this.persistence = getPersistence(root);
+  }
+
+  initialize() { return this.persistence.initialize(); }
+  create(game) { return this.persistence.createGameProject(game); }
+  list(ownerId) { return this.persistence.listGameProjects(ownerId); }
+  get(id, ownerId) { return this.persistence.getGameProject(id, ownerId); }
+  getVersion(id, ownerId, version) { return this.persistence.getGameVersion(id, ownerId, version); }
+  appendVersion(id, ownerId, versionData) {
+    return this.persistence.appendGameVersion(id, ownerId, versionData);
+  }
+  getSave(id, ownerId) { return this.persistence.getGameSave(id, ownerId); }
+  save(id, ownerId, state) { return this.persistence.saveGameState(id, ownerId, state); }
+}
+
+module.exports = { AuthStore, GameStore, PersistenceStore, ProjectStore };

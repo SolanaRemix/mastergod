@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { randomBytes } = require("node:crypto");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -111,6 +112,36 @@ test("health reports the initialized SQLite persistence adapter", async () => {
   assert.equal(health.persistence, "sqlite");
   assert.equal(health.authentication, "ENABLED");
   assert.equal(health.productionReady, false);
+});
+
+test("deployment preflight blocks missing credentials, invalid health URLs, and unmet release gates", () => {
+  const script = path.join(__dirname, "..", "scripts", "deploy-release.sh");
+  const missingConfiguration = spawnSync("bash", [script, "preflight"], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH }
+  });
+  assert.equal(missingConfiguration.status, 2);
+  assert.match(missingConfiguration.stderr, /Deployment BLOCKED: required configuration GODS_DEPLOY_HOST is missing/);
+
+  const configuration = {
+    ...process.env,
+    GODS_DEPLOY_HOST: "deploy.example",
+    GODS_DEPLOY_USER: "gods",
+    GODS_DEPLOY_KEY: "placeholder-only",
+    GODS_DEPLOY_KNOWN_HOSTS: "deploy.example ssh-ed25519 placeholder-only",
+    GODS_DEPLOY_PATH: "/srv/gods",
+    GODS_DEPLOY_HEALTH_URL: "https://deploy.example/api/health"
+  };
+  const invalidUrl = spawnSync("bash", [script, "preflight"], {
+    encoding: "utf8",
+    env: { ...configuration, GODS_DEPLOY_HEALTH_URL: "http://deploy.example/api/health" }
+  });
+  assert.equal(invalidUrl.status, 2);
+  assert.match(invalidUrl.stderr, /HTTPS health URL is invalid/);
+
+  const unmetGates = spawnSync("bash", [script, "preflight"], { encoding: "utf8", env: configuration });
+  assert.equal(unmetGates.status, 3);
+  assert.match(unmetGates.stderr, /project release blueprint still has unmet production gates/);
 });
 
 test("registration creates a user account and an opaque, HttpOnly session cookie", async () => {
@@ -256,6 +287,98 @@ test("admin access requires explicit password-verified provisioning for the conf
   const summary = await fetch(`${baseUrl}/api/admin/summary`, { headers: { cookie: account.cookie } });
   assert.equal(summary.status, 200);
   assert.equal((await summary.json()).summary.users > 0, true);
+});
+
+test("game studio creates a private playable version, refines it, saves progress, and restores history", async () => {
+  const owner = await registerAccount("game-owner@example.com");
+  const other = await registerAccount("game-other@example.com");
+  const create = await fetch(`${baseUrl}/api/games`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: owner.cookie, origin: baseUrl },
+    body: JSON.stringify({
+      prompt: "Build a 3D multiplayer music game <script>window.pwned=1</script> collecting orbs"
+    })
+  });
+  assert.equal(create.status, 201);
+  const result = await create.json();
+  const { game } = result;
+  assert.equal(game.status, "IMPLEMENTED_UNVERIFIED");
+  assert.equal(game.specification.engine, "HTML5 Canvas 2D");
+  assert.ok(result.limitations.includes("3D scenes and models"));
+  assert.ok(result.limitations.includes("online or local multiplayer"));
+  assert.equal(game.versions.length, 1);
+  assert.equal(Object.hasOwn(game.versions[0], "source"), false);
+
+  assert.equal((await fetch(`${baseUrl}/api/games`, { headers: { cookie: other.cookie } })
+    .then((response) => response.json())).games.length, 0);
+  assert.equal((await fetch(`${baseUrl}/api/games/${game.id}`, { headers: { cookie: other.cookie } })).status, 404);
+  assert.equal((await fetch(`${baseUrl}/api/games/${game.id}/preview`, { headers: { cookie: other.cookie } })).status, 404);
+
+  const preview = await fetch(`${baseUrl}/api/games/${game.id}/preview?version=1`, { headers: { cookie: owner.cookie } });
+  assert.equal(preview.status, 200);
+  assert.match(preview.headers.get("content-security-policy"), /sandbox allow-scripts/);
+  assert.match(preview.headers.get("content-security-policy"), /connect-src 'none'/);
+  const previewHtml = await preview.text();
+  assert.match(previewHtml, /<canvas id="arena"/);
+  assert.match(previewHtml, /requestAnimationFrame\(draw\)/);
+  assert.doesNotMatch(previewHtml, /<\/script><script>window\.pwned/);
+  assert.match(previewHtml, /\\u003cscript\\u003ewindow\.pwned=1\\u003c\/script\\u003e/);
+  assert.match(previewHtml, /connect-src 'none'/);
+
+  const state = { x: 120, y: 170, score: 4, orbX: 400, orbY: 210, untrusted: "<script>" };
+  const save = await fetch(`${baseUrl}/api/games/${game.id}/save`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: owner.cookie, origin: baseUrl },
+    body: JSON.stringify({ state })
+  });
+  assert.equal(save.status, 200);
+  assert.deepEqual((await save.json()).save.state, {
+    x: state.x,
+    y: state.y,
+    score: state.score,
+    orbX: state.orbX,
+    orbY: state.orbY
+  });
+  assert.equal((await fetch(`${baseUrl}/api/games/${game.id}/save`, { headers: { cookie: other.cookie } })).status, 404);
+
+  const invalidSave = await fetch(`${baseUrl}/api/games/${game.id}/save`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: owner.cookie, origin: baseUrl },
+    body: JSON.stringify({ state: { ...state, score: -1 } })
+  });
+  assert.equal(invalidSave.status, 400);
+
+  const refinement = await fetch(`${baseUrl}/api/games/${game.id}/refine`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: owner.cookie, origin: baseUrl },
+    body: JSON.stringify({ instruction: "Make the game easier" })
+  });
+  assert.equal(refinement.status, 200);
+  const refined = (await refinement.json()).game;
+  assert.equal(refined.latestVersion, 2);
+  assert.equal(refined.specification.difficulty, "easy");
+  assert.equal(Object.hasOwn(refined.versions[0], "specification"), false);
+
+  const unsupported = await fetch(`${baseUrl}/api/games/${game.id}/refine`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: owner.cookie, origin: baseUrl },
+    body: JSON.stringify({ instruction: "Make it 3D" })
+  });
+  assert.equal(unsupported.status, 422);
+  assert.equal((await unsupported.json()).status, "PARTIALLY_IMPLEMENTED");
+
+  const restore = await fetch(`${baseUrl}/api/games/${game.id}/rollback`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: owner.cookie, origin: baseUrl },
+    body: JSON.stringify({ version: 1 })
+  });
+  assert.equal(restore.status, 200);
+  const restored = (await restore.json()).game;
+  assert.equal(restored.latestVersion, 3);
+  assert.equal(restored.specification.difficulty, "normal");
+  assert.equal(restored.versions.length, 3);
+  assert.equal((await fetch(`${baseUrl}/api/games/${game.id}`, { headers: { cookie: owner.cookie } })
+    .then((response) => response.json())).game.latestVersion, 3);
 });
 
 test("project creation, approval, blueprint download, and persistence work end to end", async () => {
