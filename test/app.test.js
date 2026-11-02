@@ -146,13 +146,14 @@ test("V13 blueprint version, canonical status values, and release gates are cons
     "VERIFIED", "IMPLEMENTED_UNVERIFIED", "PARTIALLY_IMPLEMENTED", "MISSING",
     "BLOCKED", "FAILED", "UNKNOWN", "NOT_APPLICABLE"
   ]);
-  assert.equal(manifest.version, "13.0.0");
+  assert.equal(manifest.version, "13.2.0");
   assert.equal(blueprint.project.version, manifest.version);
   assert.equal(blueprint.blueprintVersion, manifest.version);
   assert.equal(blueprint.release.productionReady, false);
-  assert.equal(blueprint.release.acceptanceGates.length, 34);
+  assert.equal(blueprint.release.acceptanceGates.length, 35);
   assert.equal(blueprint.release.acceptanceGates.find((gate) => gate.id === 25).status, "VERIFIED");
   assert.equal(blueprint.release.acceptanceGates.find((gate) => gate.id === 26).status, "BLOCKED");
+  assert.equal(blueprint.release.acceptanceGates.find((gate) => gate.id === 35).status, "VERIFIED");
   assert.ok(blueprint.requirements.every((requirement) => knownStatuses.has(requirement.status)));
   assert.ok(blueprint.release.acceptanceGates.every((gate) => knownStatuses.has(gate.status)));
 });
@@ -639,6 +640,25 @@ test("blueprint generation persists an agent graph and artifact files remain own
   assert.ok(agentRuns.body.executions.some((run) => run.agentId === "code-generation-agent"
     && run.status === "COMPLETED" && run.modelProvider === null
     && run.toolsInvoked.includes("project-artifact-write")));
+  const implementationManifest = await json(`/api/projects/${truckingProject.id}/manifest`);
+  assert.equal(implementationManifest.response.status, 200);
+  assert.equal(implementationManifest.body.manifest.status, "PARTIALLY_IMPLEMENTED");
+  assert.ok(implementationManifest.body.manifest.files.some((file) => file.path === "generated-app/index.html"));
+  assert.ok(implementationManifest.body.manifest.agents.some((run) => run.agentId === "code-generation-agent"
+    && run.provider === null && run.model === null));
+  assert.ok(implementationManifest.body.manifest.requirements.every((requirement) =>
+    ["VERIFIED", "IMPLEMENTED_UNVERIFIED", "PARTIALLY_IMPLEMENTED", "MISSING", "BLOCKED",
+      "FAILED", "UNKNOWN", "NOT_APPLICABLE"].includes(requirement.status)));
+  assert.equal(implementationManifest.body.manifest.automatedTests.status, "UNKNOWN");
+  const manifestDownload = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/manifest?download=1`, {
+    headers: { cookie: owner.cookie }
+  });
+  assert.equal(manifestDownload.status, 200);
+  assert.match(manifestDownload.headers.get("content-disposition"), /implementation-manifest\.json/);
+  assert.equal(JSON.parse(await manifestDownload.text()).project.id, truckingProject.id);
+  assert.equal((await fetch(`${baseUrl}/api/projects/${truckingProject.id}/manifest`, {
+    headers: { cookie: other.cookie }
+  })).status, 404);
   const taskEvents = await json(`/api/projects/${truckingProject.id}/tasks/${encodeURIComponent(generated.body.tasks[0].taskId)}/events`);
   assert.equal(taskEvents.response.status, 200);
   assert.ok(taskEvents.body.events.length > 0);

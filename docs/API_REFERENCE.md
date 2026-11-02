@@ -16,6 +16,8 @@ All project routes require an authenticated session and enforce project ownershi
 | `GET /api/projects/:id/tasks/:taskId/events` | Read task state history | Owner-scoped |
 | `POST /api/projects/:id/tasks/:taskId/run` | Run an assigned task handler | Persists execution outcome and task state |
 | `GET /api/projects/:id/agent-executions` | Read persisted specialist run records | Owner-scoped |
+| `GET /api/projects/:id/manifest` | Assemble a project implementation manifest from persisted requirements, tasks, executions, artifacts, and build reports | Owner-scoped, evidence-derived; unknown tests remain `UNKNOWN` |
+| `GET /api/projects/:id/manifest?download=1` | Download the current implementation manifest as JSON | Same manifest and ownership checks |
 | `POST /api/projects/:id/agents/:agentId/execute` | Run one of 20 local specialists on an approved project | Persists result; provider-dependent roles return `BLOCKED` |
 | `POST /api/projects/:id/build` | Run bounded static syntax/structure checks | Persists build report; does not execute project code |
 | `GET /api/projects/:id/builds` | Read build check history | Owner-scoped |

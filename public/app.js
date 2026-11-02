@@ -196,7 +196,7 @@ function renderProject(project) {
   notice.className = "project-notice";
   notice.textContent = project.status === "DRAFT"
     ? "Needs your approval before it can move forward."
-    : "Plan saved. Build workers are blocked until an AI provider and secure execution environment are configured.";
+    : "Plan saved. Eligible deterministic local workers can run; provider-backed AI and production builds are not configured.";
   card.append(notice);
 
   const blueprintLink = document.createElement("a");
@@ -204,6 +204,33 @@ function renderProject(project) {
   blueprintLink.href = `/api/projects/${encodeURIComponent(project.id)}/blueprint`;
   blueprintLink.textContent = "Download project blueprint";
   card.append(blueprintLink);
+
+  const manifestSection = document.createElement("details");
+  manifestSection.className = "project-manifest";
+  const manifestSummary = document.createElement("summary");
+  manifestSummary.textContent = "View implementation evidence";
+  const manifestOutput = document.createElement("pre");
+  manifestOutput.className = "project-build-report";
+  manifestOutput.textContent = "Open to load the latest project evidence.";
+  const manifestDownload = document.createElement("a");
+  manifestDownload.className = "text-link";
+  manifestDownload.href = `/api/projects/${encodeURIComponent(project.id)}/manifest?download=1`;
+  manifestDownload.textContent = "Download implementation manifest";
+  manifestSection.append(manifestSummary, manifestDownload, manifestOutput);
+  let manifestLoaded = false;
+  manifestSection.addEventListener("toggle", async () => {
+    if (!manifestSection.open || manifestLoaded) return;
+    manifestLoaded = true;
+    manifestOutput.textContent = "Loading persisted project evidence…";
+    try {
+      const { manifest } = await api(`/api/projects/${encodeURIComponent(project.id)}/manifest`);
+      manifestOutput.textContent = JSON.stringify(manifest, null, 2);
+    } catch (error) {
+      manifestOutput.textContent = `Unable to load evidence: ${error.message}`;
+      manifestLoaded = false;
+    }
+  });
+  card.append(manifestSection);
 
   if (project.status !== "DRAFT") {
     const executionSection = document.createElement("section");
@@ -213,7 +240,7 @@ function renderProject(project) {
     executionHeading.textContent = "Agent execution graph";
     const executionDescription = document.createElement("p");
     executionDescription.className = "helper-text";
-    executionDescription.textContent = "Create traceable tasks from this approved blueprint. Tasks remain blocked until a real worker is configured.";
+    executionDescription.textContent = "Create traceable tasks from this approved blueprint. Registered local workers can run; unavailable capabilities remain blocked.";
     const executionSummary = document.createElement("div");
     executionSummary.className = "helper-text";
     function renderExecutionSummary(execution) {
@@ -259,8 +286,8 @@ function renderProject(project) {
         if (tasks.length) {
           createGraph.classList.add("hidden");
           executionDescription.textContent = tasks.some((task) => task.status === "QUEUED")
-            ? "Tasks are queued for registered workers; outcomes will be recorded with evidence."
-            : "The graph is persisted; tasks are blocked because no verified worker is registered.";
+            ? "Tasks are queued for registered deterministic local workers; outcomes are recorded with evidence."
+            : "The graph is persisted; review each task's blocker and execution record.";
           renderAgentTasks(project, executionTasks, tasks);
           api(`/api/projects/${encodeURIComponent(project.id)}/execution`)
             .then(({ execution }) => renderExecutionSummary(execution))
@@ -276,7 +303,7 @@ function renderProject(project) {
     artifactHeading.textContent = "Project files";
     const artifactDescription = document.createElement("p");
     artifactDescription.className = "helper-text";
-    artifactDescription.textContent = "Create and manage files persisted in your project database. Agent generation is not available until a verified worker is configured.";
+    artifactDescription.textContent = "Create and manage files persisted in your project database. Local worker generation is a prototype, not a production application.";
     const artifactToggle = document.createElement("button");
     artifactToggle.className = "secondary-button";
     artifactToggle.type = "button";

@@ -1,6 +1,6 @@
 {
   "name": "master-gods",
-  "version": "13.0.0",
+  "version": "13.2.0",
   "private": true,
   "description": "A V13-in-progress local-first project studio with owner-scoped artifacts and evidence-aware execution records.",
   "scripts": {

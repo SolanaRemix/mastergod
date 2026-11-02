@@ -221,6 +221,10 @@ textarea::placeholder { color: #74829b; }
 .task-list li { padding: 9px 10px; color: #bbc7dc; border-radius: 8px; background: rgba(5, 9, 18, .45); font-size: 11px; }
 .status-pill.blocked { color: #ffd58a; border-color: rgba(251, 191, 36, .22); background: rgba(251, 191, 36, .08); }
 .project-notice { margin: 14px 0; color: #ffd58a; font-size: 12px; line-height: 1.6; }
+.project-manifest { margin-top: 12px; }
+.project-manifest summary { width: fit-content; margin: 8px 0; color: #b7eaf3; cursor: pointer; }
+.project-manifest .text-link { display: inline-block; margin: 6px 0; }
+.project-manifest .project-build-report { max-height: 420px; }
 .text-link { color: #8be5f3; font-size: 12px; text-underline-offset: 3px; }
 .empty-state { padding: 28px; color: var(--muted); border: 1px dashed rgba(148, 163, 184, .2); border-radius: 13px; text-align: center; font-size: 13px; }
 .artifact-workspace { margin-top: 20px; padding: 16px; border-radius: 14px; }

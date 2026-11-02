@@ -1,9 +1,9 @@
 {
-  "blueprintVersion": "13.0.0",
+  "blueprintVersion": "13.2.0",
   "project": {
     "id": "master-gods",
     "name": "Master GODS",
-    "version": "13.0.0",
+    "version": "13.2.0",
     "purpose": "A V13-in-progress local-first AI Studio with owner-scoped project planning, deterministic local specialists, artifact editing, safe Markdown preview, ZIP exchange, and evidence-aware release gates."
   },
   "requirements": [
@@ -121,6 +121,11 @@
       "id": "REQ-V13-BACKGROUND-001",
       "description": "Run durable project builds in a background queue with recovery after process interruption.",
       "status": "MISSING"
+    },
+    {
+      "id": "REQ-V13.2-MANIFEST-001",
+      "description": "Provide an owner-scoped downloadable implementation manifest derived from persisted project tasks, executions, artifacts, and build records without overstating verification.",
+      "status": "VERIFIED"
     }
   ],
   "runtime": {
@@ -231,7 +236,8 @@
       { "id": 31, "name": "GitHub-to-GODS synchronization", "status": "BLOCKED" },
       { "id": 32, "name": "Protected conflict detection and resolution", "status": "BLOCKED" },
       { "id": 33, "name": "Security, isolation, and secret protection", "status": "PARTIALLY_IMPLEMENTED" },
-      { "id": 34, "name": "Complete-project read-back and delivery report", "status": "PARTIALLY_IMPLEMENTED" }
+      { "id": 34, "name": "Complete-project read-back and delivery report", "status": "PARTIALLY_IMPLEMENTED" },
+      { "id": 35, "name": "Evidence-derived owner-scoped implementation manifest", "status": "VERIFIED" }
     ],
     "blockers": [
       "Automated email verification and delivery-based password recovery are not configured",
@@ -252,7 +258,8 @@
       "No published game destination or external integration is verified",
       "No GitHub OAuth client, encrypted token storage, repository adapter, or user-authorized repository access is configured",
       "No provider credentials or model adapters are configured; failover to another provider would risk unauthorized data transmission",
-      "The Markdown renderer does not provide syntax highlighting, math, Mermaid execution, structured AI chat responses, or code-block action workflows"
+      "The Markdown renderer does not provide syntax highlighting, math, Mermaid execution, structured AI chat responses, or code-block action workflows",
+      "Project-specific automated test execution results are not persisted; the implementation manifest reports test status as UNKNOWN"
     ]
   }
 }

@@ -13,6 +13,7 @@ const { createVerifiedProjectZip, readVerifiedProjectZip } = require("./src/proj
 const { createCoreAgentHandlers } = require("./src/core-agents");
 const { inlineProjectAssets } = require("./src/project-preview");
 const { verifyProjectArtifacts } = require("./src/services/StaticBuildService");
+const { createProjectImplementationManifest } = require("./src/project-manifest");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY_BYTES = 64 * 1024;
@@ -524,6 +525,34 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         return executions
           ? sendJson(response, 200, { executions, status: "VERIFIED" })
           : sendJson(response, 404, { error: "Project not found." });
+      }
+
+      const manifestRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/manifest$/);
+      if (request.method === "GET" && manifestRoute) {
+        const projectId = manifestRoute[1];
+        const ownerId = request.authenticatedUser.id;
+        const project = await store.get(projectId);
+        if (!project || project.ownerId !== ownerId) return sendJson(response, 404, { error: "Project not found." });
+        const [tasks, executions, artifacts, builds] = await Promise.all([
+          store.listAgentTasks(projectId, ownerId),
+          store.listAgentExecutions(projectId, ownerId),
+          store.listArtifacts(projectId, ownerId),
+          store.listBuilds(projectId, ownerId)
+        ]);
+        if (!tasks || !executions || !artifacts || !builds) {
+          return sendJson(response, 404, { error: "Project evidence is unavailable." });
+        }
+        const manifest = createProjectImplementationManifest({ project, tasks, executions, artifacts, builds });
+        if (url.searchParams.get("download") === "1") {
+          response.writeHead(200, {
+            "content-type": "application/json; charset=utf-8",
+            "content-disposition": `attachment; filename="gods-${projectId}-implementation-manifest.json"`,
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff"
+          });
+          return response.end(JSON.stringify(manifest, null, 2));
+        }
+        return sendJson(response, 200, { manifest, status: manifest.status });
       }
 
       const directAgentRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/agents\/([a-z0-9-]{2,64})\/execute$/);

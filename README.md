@@ -1,4 +1,4 @@
-# Master GODS V13.0.0
+# Master GODS V13.2.0
 
 A dependency-free, local-first AI Studio foundation with authenticated ownership, SQLite persistence, request-derived capability plans and execution snapshots, a deterministic 2D game template, and an evidence-aware artifact file manager. Provider-backed agent execution and the full production software factory are not configured.
 
@@ -68,6 +68,7 @@ The browser does not call an AI service. Requirement extraction and capability m
 - `GET /api/projects/:id/blueprint` — download the project blueprint.
 - `POST /api/projects/:id/generate` — validate an approved blueprint and persist its deterministic agent task graph; eligible local workers can execute assigned tasks and write prototype artifacts.
 - `GET /api/projects/:id/execution` — read the persisted, owner-scoped request/team/capability-gap/task-graph snapshot.
+- `GET /api/projects/:id/manifest` — view or download an evidence-derived project manifest; it does not mark untested work as verified.
 - `GET /api/projects/:id/tasks` — list persisted, owner-scoped task records.
 - `GET /api/projects/:id/tasks/:taskId/events` — read a task's persisted state-transition history.
 - `POST /api/projects/:id/tasks/:taskId/run` — execute a registered task handler; unavailable workers remain `BLOCKED`.
