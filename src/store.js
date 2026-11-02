@@ -283,6 +283,16 @@ class PersistenceStore {
       );
       CREATE INDEX IF NOT EXISTS agent_executions_owner_project
         ON agent_executions(owner_id, project_id, started_at DESC);
+      CREATE TABLE IF NOT EXISTS project_builds (
+        id TEXT PRIMARY KEY NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK (status IN ('IMPLEMENTED_UNVERIFIED', 'BLOCKED', 'FAILED')),
+        report TEXT NOT NULL CHECK (json_valid(report)),
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS project_builds_owner_project
+        ON project_builds(owner_id, project_id, created_at DESC);
       CREATE TABLE IF NOT EXISTS migrations (
         version INTEGER PRIMARY KEY NOT NULL,
         applied_at TEXT NOT NULL
@@ -1513,14 +1523,11 @@ class PersistenceStore {
       const ownsProject = this.database.prepare(`
         SELECT 1 FROM projects WHERE id = ? AND owner_id = ?
       `).get(projectId, ownerId);
-      const task = this.database.prepare(`
-        SELECT 1 FROM agent_tasks WHERE project_id = ? AND owner_id = ? AND task_id = ?
-      `).get(projectId, ownerId, taskId);
       const agent = this.database.prepare(`
         SELECT version, availability FROM core_agents WHERE agent_id = ?
       `).get(agentId);
-      if (!ownsProject || !task || !agent || agent.availability !== "available" || agent.version !== version) {
-        throw new Error("Agent execution must reference an owned project, existing task, and available agent version.");
+      if (!ownsProject || !agent || agent.availability !== "available" || agent.version !== version) {
+        throw new Error("Agent execution must reference an owned project and available agent version.");
       }
       const id = randomUUID();
       const startedAt = new Date().toISOString();
@@ -1584,6 +1591,39 @@ class PersistenceStore {
       error: row.error ? JSON.parse(row.error) : null,
       validation: row.validation ? JSON.parse(row.validation) : null
     }));
+  }
+
+  async createProjectBuild(projectId, ownerId, report) {
+    await this.initialize();
+    return this.transaction(() => {
+      if (!this.database.prepare(`
+        SELECT 1 FROM projects WHERE id = ? AND owner_id = ?
+      `).get(projectId, ownerId)) return null;
+      const id = randomUUID();
+      const createdAt = new Date().toISOString();
+      this.database.prepare(`
+        INSERT INTO project_builds (id, project_id, owner_id, status, report, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, projectId, ownerId, report.status, JSON.stringify(report), createdAt);
+      const readBack = this.database.prepare(`
+        SELECT id, project_id AS projectId, owner_id AS ownerId, status, report, created_at AS createdAt
+        FROM project_builds WHERE id = ? AND project_id = ? AND owner_id = ?
+      `).get(id, projectId, ownerId);
+      if (!readBack || readBack.status !== report.status) throw new Error("Build report failed database read-back.");
+      return { ...readBack, report: JSON.parse(readBack.report) };
+    });
+  }
+
+  async listProjectBuilds(projectId, ownerId) {
+    await this.initialize();
+    if (!this.database.prepare(`
+      SELECT 1 FROM projects WHERE id = ? AND owner_id = ?
+    `).get(projectId, ownerId)) return null;
+    return this.database.prepare(`
+      SELECT id, project_id AS projectId, owner_id AS ownerId, status, report, created_at AS createdAt
+      FROM project_builds WHERE project_id = ? AND owner_id = ?
+      ORDER BY created_at DESC LIMIT 50
+    `).all(projectId, ownerId).map((row) => ({ ...row, report: JSON.parse(row.report) }));
   }
 
   listAgentTasksSync(projectId, ownerId) {
@@ -1918,6 +1958,8 @@ class ProjectStore {
   startAgentExecution(run) { return this.persistence.startAgentExecution(run); }
   finishAgentExecution(id, result) { return this.persistence.finishAgentExecution(id, result); }
   listAgentExecutions(id, ownerId) { return this.persistence.listAgentExecutions(id, ownerId); }
+  createBuild(id, ownerId, report) { return this.persistence.createProjectBuild(id, ownerId, report); }
+  listBuilds(id, ownerId) { return this.persistence.listProjectBuilds(id, ownerId); }
   listAgentTasks(id, ownerId) { return this.persistence.listAgentTasks(id, ownerId); }
   getAgentTask(id, ownerId, taskId) { return this.persistence.getAgentTask(id, ownerId, taskId); }
   transitionAgentTask(id, ownerId, taskId, expected, next, update, details) {

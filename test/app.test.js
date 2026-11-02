@@ -8,6 +8,7 @@ const { after, before, test } = require("node:test");
 const { approveRequirements, buildTaskGraph, createDraft, discoverRequirements } = require("../src/blueprint");
 const { agents } = require("../src/agents");
 const { AgentCapabilityRegistry } = require("../src/capability-registry");
+const { CORE_AGENT_DEFINITIONS } = require("../src/core-agents");
 const { createVerifiedProjectZip } = require("../src/project-archive");
 const { AgentOrchestrator } = require("../src/services/AgentOrchestrator.ts");
 const { createServer } = require("../server");
@@ -813,11 +814,49 @@ test("blueprint generation persists an agent graph and artifact files remain own
   assert.equal(importResult.body.imported.length, 2);
   assert.equal((await json(`/api/projects/${importProject.id}/artifacts/file?path=src%2Fhello.js`)).body.artifact.contents,
     "export const hello = 'world';");
+  const buildCheck = await json(`/api/projects/${importProject.id}/build`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  assert.equal(buildCheck.response.status, 201);
+  assert.equal(buildCheck.body.build.status, "IMPLEMENTED_UNVERIFIED");
+  assert.ok(buildCheck.body.build.report.checks.some((check) => check.path === "src/hello.js"
+    && check.check === "javascript-syntax" && check.status === "VERIFIED"));
+  const invalidSource = await json(`/api/projects/${importProject.id}/artifacts/files`, {
+    method: "POST",
+    body: JSON.stringify({ path: "src/broken.js", contents: "const = ;", language: "js" })
+  });
+  assert.equal(invalidSource.response.status, 201);
+  const failedBuild = await json(`/api/projects/${importProject.id}/build`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  assert.equal(failedBuild.body.build.status, "FAILED");
+  assert.ok(failedBuild.body.build.report.checks.some((check) => check.path === "src/broken.js"
+    && check.status === "FAILED"));
+  const buildHistory = await json(`/api/projects/${importProject.id}/builds`);
+  assert.equal(buildHistory.body.builds.length, 2);
   const importConflict = await json(`/api/projects/${importProject.id}/artifacts/zip-import`, {
     method: "POST",
     body: JSON.stringify({ archiveBase64: importZip.toString("base64") })
   });
   assert.equal(importConflict.response.status, 409);
+  const directRuns = [];
+  for (const agent of CORE_AGENT_DEFINITIONS) {
+    const execution = await json(`/api/projects/${importProject.id}/agents/${agent.id}/execute`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+    assert.equal(execution.response.status, 200, agent.id);
+    directRuns.push(execution.body.execution);
+  }
+  assert.equal(directRuns.length, 20);
+  assert.equal(directRuns.filter((run) => run.status === "COMPLETED").length, 17);
+  assert.equal(directRuns.filter((run) => run.status === "BLOCKED").length, 3);
+  const directRunHistory = await json(`/api/projects/${importProject.id}/agent-executions`);
+  assert.equal(directRunHistory.body.executions.length, 20);
+  assert.ok(directRunHistory.body.executions.every((run) => run.agentVersion === "1.0.0"
+    && run.finishedAt && run.validation));
   const audit = await json(`/api/projects/${truckingProject.id}/artifacts/audit`);
   assert.ok(audit.body.audit.some((entry) => entry.action === "restored"));
 

@@ -6,6 +6,21 @@ const { validateArtifactPath } = require("./artifacts");
 
 const MAX_PROJECT_BYTES = 4 * 1024 * 1024;
 const MAX_PROJECT_FILES = 500;
+const LIKELY_SECRET_PATTERNS = [
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bgh[pousr]_[A-Za-z0-9]{30,}\b/,
+  /\bsk-[A-Za-z0-9_-]{32,}\b/,
+  /\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|private[_-]?key|password)\s*[:=]\s*["'][^"'\s]{16,}["']/i
+];
+
+function assertNoLikelySecrets(files) {
+  for (const file of files) {
+    if (LIKELY_SECRET_PATTERNS.some((pattern) => pattern.test(file.contents))) {
+      throw new Error(`Potential credential content detected in ${file.path}; remove it before ZIP export or import.`);
+    }
+  }
+}
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -35,6 +50,7 @@ async function createVerifiedProjectZip(files) {
   if (new Set(checked.map((file) => file.path)).size !== checked.length) {
     throw new Error("Project ZIP cannot contain duplicate paths.");
   }
+  assertNoLikelySecrets(checked);
 
   const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "gods-project-zip-"));
   const archivePath = path.join(temporaryDirectory, "project.zip");
@@ -124,6 +140,7 @@ async function readVerifiedProjectZip(archive) {
         language: artifactPath.split(".").pop() || "text"
       });
     }
+    assertNoLikelySecrets(files);
     return files;
   } finally {
     await fs.rm(temporaryDirectory, { recursive: true, force: true });

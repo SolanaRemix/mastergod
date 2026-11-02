@@ -22,10 +22,11 @@ The current boundary is planning and tracking. This path does not generate appli
 | Browser workspace | `public/app.js`, `public/index.html`, `public/styles.css` | Implemented, not production-verified |
 | HTTP API and authentication gates | `server.js` | Implemented, focused tests |
 | Requirement and blueprint logic | `src/blueprint.js` | Implemented, deterministic |
-| Capability metadata and discovery | `src/agents.js`, `src/capability-registry.js` | Implemented, catalog-only workers |
-| Task orchestration | `src/services/AgentOrchestrator.ts` | Partial; no configured workers or durable queue |
-| Project, artifact, and execution persistence | `src/store.js` | SQLite implementation, owner-scoped |
-| Provider adapters, model routing, workflow runtime, and production deployment | Not present | Blocked or missing |
+| Capability metadata and discovery | `src/agents.js`, `src/capability-registry.js`, `src/core-agents.js` | 20 persisted deterministic local specialists; no model calls |
+| Task orchestration | `src/services/AgentOrchestrator.ts` | Executable local handlers and persistent run records; no durable queue |
+| Project, artifact, execution, and build persistence | `src/store.js` | SQLite implementation, owner-scoped |
+| File exchange and safe preview | `src/project-archive.js`, `src/project-preview.js` | Verified text ZIP import/export and sandboxed static HTML preview |
+| Provider adapters, dependency builds, arbitrary runtime, workflow engine, and production deployment | Not present | Blocked or missing |
 
 ## Repository compatibility
 

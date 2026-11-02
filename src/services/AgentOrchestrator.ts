@@ -158,6 +158,77 @@ class AgentOrchestrator {
     return this.store.listAgentTaskEvents(projectId, ownerId, taskId);
   }
 
+  async executeRegisteredAgent(projectId: string, ownerId: string, agentId: string, input: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    const handler = this.handlers.get(agentId);
+    const agent = coreAgentsById.get(agentId) as { version: string } | undefined;
+    if (!handler || !agent) return null;
+    const taskId = `DIRECT-${randomUUID()}`;
+    const task: AgentTask = {
+      taskId,
+      projectId,
+      ownerId,
+      generationId: "direct-agent-execution",
+      projectType: typeof input.projectType === "string" ? input.projectType : "general",
+      title: agentId,
+      agentId,
+      dependencies: [],
+      input,
+      timeoutSeconds: 60,
+      maxAttempts: 1,
+      attempt: 1,
+      status: "RUNNING",
+      blockedReason: null,
+      error: null,
+      result: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const executionId = await this.store.startAgentExecution({
+      projectId,
+      ownerId,
+      taskId,
+      agentId,
+      version: agent.version,
+      input,
+      toolsInvoked: []
+    });
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timedOut = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(Object.assign(new Error("Direct agent execution exceeded its 60-second limit."), {
+            code: "TASK_TIMEOUT",
+            retryable: false
+          }));
+        }, task.timeoutSeconds * 1000);
+      });
+      const output = validateResult(await Promise.race([
+        handler(input, { task, signal: controller.signal, executionId }),
+        timedOut
+      ]));
+      const record = await this.store.finishAgentExecution(executionId, {
+        status: "COMPLETED",
+        output,
+        toolsInvoked: Array.isArray(output.toolCalls) ? output.toolCalls : [],
+        validation: { outputContract: "VERIFIED", executionRecordReadBack: true }
+      });
+      return { executionId, taskId, agentId, agentVersion: agent.version, status: record.status, output: record.output };
+    } catch (error) {
+      const failure = asError(error);
+      const status = failure.code === "AGENT_BLOCKED" ? "BLOCKED" : "FAILED";
+      const record = await this.store.finishAgentExecution(executionId, {
+        status,
+        error: failure,
+        validation: { outputContract: status }
+      });
+      return { executionId, taskId, agentId, agentVersion: agent.version, status: record.status, error: record.error };
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
   async executeTask(projectId: string, ownerId: string, taskId: string): Promise<AgentTask | null> {
     let task = await this.store.getAgentTask(projectId, ownerId, taskId);
     if (!task) return null;

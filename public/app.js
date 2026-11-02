@@ -526,7 +526,32 @@ async function renderArtifactManager(project, container, selectedPath) {
     zipImportLabel.className = "secondary-button";
     zipImportLabel.textContent = "Import project ZIP";
     zipImportLabel.append(zipImportInput);
-    toolbar.append(createFile, createFolder, exportLink, zipLink, uploadLabel, zipImportLabel);
+    const buildButton = addButton("Run safe static checks", "primary-button");
+    const buildReport = document.createElement("pre");
+    buildReport.className = "project-build-report hidden";
+    buildReport.setAttribute("aria-live", "polite");
+    buildButton.addEventListener("click", async () => {
+      buildButton.disabled = true;
+      try {
+        const { build } = await api(`/api/projects/${encodeURIComponent(project.id)}/build`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
+        buildReport.textContent = [
+          `${build.status} · ${new Date(build.createdAt).toLocaleString()}`,
+          ...build.report.logs,
+          ...build.report.checks.map((check) => `${check.status} ${check.path}: ${check.check} — ${check.message}`),
+          build.report.execution
+        ].filter(Boolean).join("\n");
+        buildReport.classList.remove("hidden");
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        buildButton.disabled = false;
+      }
+    });
+    toolbar.append(createFile, createFolder, exportLink, zipLink, uploadLabel, zipImportLabel, buildButton);
+    container.append(buildReport);
 
     const columns = document.createElement("div");
     columns.className = "artifact-columns";

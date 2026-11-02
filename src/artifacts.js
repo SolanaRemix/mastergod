@@ -42,7 +42,12 @@ function validateArtifactPath(value) {
     error.status = 400;
     throw error;
   }
-  if (value.split("/").some((segment) => [".git", "node_modules", ".env"].includes(segment))) {
+  if (value.split("/").some((segment) => {
+    const name = segment.toLowerCase();
+    return [".git", "node_modules", ".env", "credentials.json", "secrets.json", "id_rsa", "id_ed25519"].includes(name)
+      || (name.startsWith(".env.") && name !== ".env.example")
+      || /\.(?:pem|p12|pfx|keystore)$/i.test(name);
+  })) {
     const error = new Error("System, dependency, and secret files are not managed as project artifacts.");
     error.status = 400;
     throw error;

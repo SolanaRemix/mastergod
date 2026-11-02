@@ -12,6 +12,7 @@ const { ProjectGenerator } = require("./src/services/ProjectGenerator.ts");
 const { createVerifiedProjectZip, readVerifiedProjectZip } = require("./src/project-archive");
 const { createCoreAgentHandlers } = require("./src/core-agents");
 const { inlineProjectAssets } = require("./src/project-preview");
+const { verifyProjectArtifacts } = require("./src/services/StaticBuildService");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY_BYTES = 64 * 1024;
@@ -521,6 +522,65 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         const executions = await store.listAgentExecutions(agentExecutionsRoute[1], request.authenticatedUser.id);
         return executions
           ? sendJson(response, 200, { executions, status: "VERIFIED" })
+          : sendJson(response, 404, { error: "Project not found." });
+      }
+
+      const directAgentRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/agents\/([a-z0-9-]{2,64})\/execute$/);
+      if (request.method === "POST" && directAgentRoute) {
+        const ownerId = request.authenticatedUser.id;
+        if (!allowArtifactChanges(ownerId)) {
+          return sendJson(response, 429, { error: "Agent execution limit reached. Try again later." }, { "retry-after": "3600" });
+        }
+        const body = await readJson(request);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          return sendJson(response, 400, { error: "Agent execution requires a JSON object." });
+        }
+        const project = await store.get(directAgentRoute[1]);
+        if (!project || project.ownerId !== ownerId) return sendJson(response, 404, { error: "Project not found." });
+        if (project.status !== "APPROVED_PLAN") {
+          return sendJson(response, 409, { error: "Approve this project's requirements before running a specialist." });
+        }
+        const result = await orchestrator.executeRegisteredAgent(directAgentRoute[1], ownerId, directAgentRoute[2], {
+          projectId: directAgentRoute[1],
+          title: project.title,
+          originalRequest: project.originalRequest,
+          blueprintVersion: project.blueprint?.blueprintVersion || "unknown",
+          requirements: project.requirements
+            .filter((requirement) => requirement.decision === "APPROVED")
+            .map(({ id, text }) => ({ id, text })),
+          projectType: "general"
+        });
+        return result
+          ? sendJson(response, 200, { execution: result })
+          : sendJson(response, 404, { error: "Operational specialist agent not found." });
+      }
+
+      const buildsRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/builds?$/);
+      if (request.method === "GET" && buildsRoute) {
+        const builds = await store.listBuilds(buildsRoute[1], request.authenticatedUser.id);
+        return builds
+          ? sendJson(response, 200, { builds, status: "VERIFIED" })
+          : sendJson(response, 404, { error: "Project not found." });
+      }
+      if (request.method === "POST" && buildsRoute) {
+        if (!allowArtifactChanges(request.authenticatedUser.id)) {
+          return sendJson(response, 429, { error: "Build check limit reached. Try again later." }, { "retry-after": "3600" });
+        }
+        const body = await readJson(request);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          return sendJson(response, 400, { error: "Build checks require a JSON object." });
+        }
+        const tree = await store.listArtifacts(buildsRoute[1], request.authenticatedUser.id);
+        if (!tree) return sendJson(response, 404, { error: "Project not found." });
+        const artifacts = [];
+        for (const entry of tree.files) {
+          const artifact = await store.readArtifact(buildsRoute[1], request.authenticatedUser.id, entry.path);
+          if (artifact) artifacts.push(artifact);
+        }
+        const report = verifyProjectArtifacts(artifacts);
+        const build = await store.createBuild(buildsRoute[1], request.authenticatedUser.id, report);
+        return build
+          ? sendJson(response, 201, { build, status: report.status })
           : sendJson(response, 404, { error: "Project not found." });
       }
 
