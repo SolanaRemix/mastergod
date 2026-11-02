@@ -185,20 +185,6 @@ function approveRequirements(project, decisions) {
   project.blueprint.tasks = project.tasks;
   project.status = "APPROVED_PLAN";
   project.updatedAt = new Date().toISOString();
-  project.executions.push({
-    executionId: randomUUID(),
-    agentId: "product-discovery",
-    status: "VERIFIED",
-    evidence: ["Requirements were parsed locally and individually approved or rejected by the user."],
-    createdAt: project.updatedAt
-  });
-  project.executions.push({
-    executionId: randomUUID(),
-    agentId: "beginner-explanation",
-    status: "IMPLEMENTED_UNVERIFIED",
-    evidence: ["The interface presents the approved requirements in plain language."],
-    createdAt: project.updatedAt
-  });
 
   return project;
 }

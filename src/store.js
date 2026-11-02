@@ -450,6 +450,45 @@ class PersistenceStore {
     }
   }
 
+  assertArtifactPathAvailable(projectId, artifactPath, ignoredFilePath = null) {
+    const segments = artifactPath.split("/");
+    for (let index = 1; index < segments.length; index += 1) {
+      const parent = segments.slice(0, index).join("/");
+      const parentFile = this.database.prepare(`
+        SELECT path FROM project_artifacts WHERE project_id = ? AND path = ?
+      `).get(projectId, parent);
+      if (parentFile && parentFile.path !== ignoredFilePath) {
+        const error = new Error("A file already occupies a parent folder path.");
+        error.code = "PATH_CONFLICT";
+        throw error;
+      }
+    }
+    const exactFile = this.database.prepare(`
+      SELECT path FROM project_artifacts WHERE project_id = ? AND path = ?
+    `).get(projectId, artifactPath);
+    if ((exactFile && exactFile.path !== ignoredFilePath)
+      || this.database.prepare(`
+        SELECT 1 FROM project_artifact_directories WHERE project_id = ? AND path = ?
+      `).get(projectId, artifactPath)) {
+      const error = new Error("A file or folder already exists at that path.");
+      error.code = "PATH_CONFLICT";
+      throw error;
+    }
+    const nestedEntry = this.database.prepare(`
+      SELECT path FROM project_artifacts WHERE project_id = ?
+        AND substr(path, 1, length(?) + 1) = ? || '/'
+      UNION ALL
+      SELECT path FROM project_artifact_directories WHERE project_id = ?
+        AND substr(path, 1, length(?) + 1) = ? || '/'
+      LIMIT 1
+    `).get(projectId, artifactPath, artifactPath, projectId, artifactPath, artifactPath);
+    if (nestedEntry) {
+      const error = new Error("A file cannot occupy a path that already contains a folder.");
+      error.code = "PATH_CONFLICT";
+      throw error;
+    }
+  }
+
   async createProjectArtifacts(projectId, ownerId, artifacts) {
     await this.initialize();
     return this.transaction(() => {
@@ -567,6 +606,11 @@ class PersistenceStore {
         `).run(projectId, ownerId, directory, now);
       }
       this.recordArtifactAudit(projectId, ownerId, "directory-created", directoryPath, {}, now);
+      if (!this.database.prepare(`
+        SELECT 1 FROM project_artifact_directories WHERE project_id = ? AND owner_id = ? AND path = ?
+      `).get(projectId, ownerId, directoryPath)) {
+        throw new Error("Created folder did not pass database read-back verification.");
+      }
       return directoryPath;
     });
   }
@@ -677,6 +721,15 @@ class PersistenceStore {
         toPath,
         movedFiles: files.length
       }, now);
+      if (!this.database.prepare(`
+        SELECT 1 FROM project_artifact_directories WHERE project_id = ? AND owner_id = ? AND path = ?
+      `).get(projectId, ownerId, toPath)
+        || this.database.prepare(`
+          SELECT COUNT(*) AS count FROM project_artifacts
+          WHERE project_id = ? AND substr(path, 1, length(?) + 1) = ? || '/'
+        `).get(projectId, toPath, toPath).count !== files.length) {
+        throw new Error("Renamed folder contents did not pass database read-back verification.");
+      }
       return true;
     });
   }
@@ -719,6 +772,20 @@ class PersistenceStore {
         WHERE project_id = ? AND owner_id = ?
           AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')
       `).run(projectId, ownerId, directoryPath, directoryPath, directoryPath);
+      if (this.database.prepare(`
+        SELECT 1 FROM project_artifact_directories
+        WHERE project_id = ? AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')
+      `).get(projectId, directoryPath, directoryPath, directoryPath)
+        || this.database.prepare(`
+          SELECT 1 FROM project_artifacts
+          WHERE project_id = ? AND substr(path, 1, length(?) + 1) = ? || '/'
+        `).get(projectId, directoryPath, directoryPath)
+        || this.database.prepare(`
+          SELECT 1 FROM project_artifact_versions
+          WHERE project_id = ? AND substr(path, 1, length(?) + 1) = ? || '/'
+        `).get(projectId, directoryPath, directoryPath)) {
+        throw new Error("Deleted folder contents did not pass database read-back verification.");
+      }
       return true;
     });
   }
@@ -802,27 +869,8 @@ class PersistenceStore {
         SELECT payload FROM projects WHERE id = ? AND owner_id = ?
       `).get(projectId, ownerId);
       if (!project) return null;
+      this.assertArtifactPathAvailable(projectId, artifactPath);
       const segments = artifactPath.split("/");
-      for (let index = 1; index < segments.length; index += 1) {
-        const parent = segments.slice(0, index).join("/");
-        if (this.database.prepare(`
-          SELECT 1 FROM project_artifacts WHERE project_id = ? AND path = ?
-        `).get(projectId, parent)) {
-          const error = new Error("A file already occupies a parent folder path.");
-          error.code = "PATH_CONFLICT";
-          throw error;
-        }
-      }
-      if (this.database.prepare(`
-        SELECT 1 FROM project_artifacts WHERE project_id = ? AND path = ?
-      `).get(projectId, artifactPath)
-        || this.database.prepare(`
-          SELECT 1 FROM project_artifact_directories WHERE project_id = ? AND path = ?
-        `).get(projectId, artifactPath)) {
-        const error = new Error("A file or folder already exists at that path.");
-        error.code = "PATH_CONFLICT";
-        throw error;
-      }
       const directories = segments.slice(0, -1);
       for (let index = 1; index <= directories.length; index += 1) {
         const directory = directories.slice(0, index).join("/");
@@ -883,7 +931,9 @@ class PersistenceStore {
     await this.initialize();
     fromPath = validateArtifactPath(fromPath);
     toPath = validateArtifactPath(toPath);
-    if (fromPath === toPath) throw new Error("Choose a different destination path.");
+    if (fromPath === toPath || toPath.startsWith(`${fromPath}/`)) {
+      throw new Error("Choose a different destination outside this file.");
+    }
     const now = new Date().toISOString();
     return this.transaction(() => {
       const artifact = this.database.prepare(`
@@ -900,13 +950,7 @@ class PersistenceStore {
         error.code = "VERSION_CONFLICT";
         throw error;
       }
-      if (this.database.prepare(`
-        SELECT 1 FROM project_artifacts WHERE project_id = ? AND path = ?
-      `).get(projectId, toPath)) {
-        const error = new Error("A file already exists at that path.");
-        error.code = "PATH_CONFLICT";
-        throw error;
-      }
+      this.assertArtifactPathAvailable(projectId, toPath, fromPath);
       this.database.prepare(`
         UPDATE project_artifacts SET path = ?, updated_at = ?
         WHERE project_id = ? AND owner_id = ? AND path = ?
@@ -928,6 +972,10 @@ class PersistenceStore {
       if (!readBack || readBack.contents !== artifact.contents || readBack.version !== artifact.version) {
         throw new Error("Renamed artifact did not pass database read-back verification.");
       }
+      const historyReadBack = this.database.prepare(`
+        SELECT COUNT(*) AS count FROM project_artifact_versions WHERE project_id = ? AND path = ?
+      `).get(projectId, toPath);
+      if (historyReadBack.count < artifact.version) throw new Error("Renamed artifact history did not pass read-back verification.");
       return readBack;
     });
   }
@@ -942,13 +990,7 @@ class PersistenceStore {
         SELECT * FROM project_artifacts WHERE project_id = ? AND owner_id = ? AND path = ?
       `).get(projectId, ownerId, sourcePath);
       if (!source) return null;
-      if (this.database.prepare(`
-        SELECT 1 FROM project_artifacts WHERE project_id = ? AND path = ?
-      `).get(projectId, targetPath)) {
-        const error = new Error("A file already exists at that path.");
-        error.code = "PATH_CONFLICT";
-        throw error;
-      }
+      this.assertArtifactPathAvailable(projectId, targetPath);
       this.database.prepare(`
         INSERT INTO project_artifacts (
           project_id, owner_id, path, language, contents, size_bytes, checksum, version,
@@ -1003,6 +1045,13 @@ class PersistenceStore {
       this.database.prepare(`
         DELETE FROM project_artifacts WHERE project_id = ? AND owner_id = ? AND path = ?
       `).run(projectId, ownerId, artifactPath);
+      if (this.database.prepare(`
+        SELECT 1 FROM project_artifacts WHERE project_id = ? AND path = ?
+      `).get(projectId, artifactPath) || this.database.prepare(`
+        SELECT 1 FROM project_artifact_versions WHERE project_id = ? AND path = ?
+      `).get(projectId, artifactPath)) {
+        throw new Error("Deleted artifact did not pass database read-back verification.");
+      }
       return true;
     });
   }

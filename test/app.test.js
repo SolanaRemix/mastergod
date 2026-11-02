@@ -84,6 +84,7 @@ test("approval persists accepted requirements and a dependency-aware blocked tas
   assert.equal(project.tasks[1].dependencies[0], project.tasks[0].taskId);
   assert.ok(project.tasks.every((task) => task.requirementIds.length === 2));
   assert.equal(buildTaskGraph(project)[0].assignedAgent.id, "systems-architect");
+  assert.deepEqual(project.executions, [], "plan approval must not create fabricated agent execution records");
 });
 
 test("approval rejects requirement edits that normalize to empty text", () => {
@@ -438,6 +439,159 @@ test("project data is private to its owner and unauthenticated access is denied"
   assert.equal((await list.json()).projects.length, 0);
   assert.equal((await fetch(`${baseUrl}/api/projects/${project.id}`, { headers: { cookie: other.cookie } })).status, 404);
   assert.equal((await fetch(`${baseUrl}/api/projects/${project.id}`, { headers: { cookie: owner.cookie } })).status, 200);
+});
+
+test("request-specific artifacts persist, enforce ownership and support versioned file operations", async () => {
+  const owner = await registerAccount("artifact-owner@example.com");
+  const other = await registerAccount("artifact-other@example.com");
+  const headers = { "content-type": "application/json", cookie: owner.cookie, origin: baseUrl };
+
+  async function createApprovedProject(prompt) {
+    const response = await fetch(`${baseUrl}/api/projects`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ prompt })
+    });
+    assert.equal(response.status, 201);
+    const { project } = await response.json();
+    const approval = await fetch(`${baseUrl}/api/projects/${project.id}/approve`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        decisions: project.requirements.map((requirement) => ({
+          id: requirement.id,
+          text: requirement.text,
+          approved: true
+        }))
+      })
+    });
+    assert.equal(approval.status, 200);
+    return project;
+  }
+
+  async function json(pathname, options = {}) {
+    const response = await fetch(`${baseUrl}${pathname}`, { ...options, headers: { ...headers, ...options.headers } });
+    return { response, body: await response.json() };
+  }
+
+  const truckingProject = await createApprovedProject("Build a trucking tool for drivers, vehicles, and invoices.");
+  const bookingsProject = await createApprovedProject("Build a calendar booking app for customer appointments.");
+  const unapproved = await fetch(`${baseUrl}/api/projects/${(await (async () => {
+    const response = await fetch(`${baseUrl}/api/projects`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ prompt: "Build a project that needs approval before files." })
+    });
+    return (await response.json()).project;
+  })()).id}/artifacts/generate`, { method: "POST", headers });
+  assert.equal(unapproved.status, 409);
+
+  const generated = await json(`/api/projects/${truckingProject.id}/artifacts/generate`, { method: "POST" });
+  assert.equal(generated.response.status, 201);
+  assert.equal(generated.body.status, "IMPLEMENTED_UNVERIFIED");
+  assert.match(generated.body.execution, /no AI agent or provider ran/);
+  assert.ok(generated.body.files.some((file) => file.path === "src/features/drivers.js"));
+  const alternate = await json(`/api/projects/${bookingsProject.id}/artifacts/generate`, { method: "POST" });
+  assert.ok(alternate.body.files.some((file) => file.path === "src/features/bookings.js"));
+  assert.ok(!alternate.body.files.some((file) => file.path === "src/features/drivers.js"));
+
+  const ownerTree = await json(`/api/projects/${truckingProject.id}/artifacts`);
+  assert.equal(ownerTree.response.status, 200);
+  assert.ok(ownerTree.body.files.length > 4);
+  assert.ok(ownerTree.body.directories.includes("src/features"));
+  assert.equal((await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts`, {
+    headers: { cookie: other.cookie }
+  })).status, 404);
+  assert.equal((await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts`)).status, 401);
+
+  const created = await json(`/api/projects/${truckingProject.id}/artifacts/files`, {
+    method: "POST",
+    body: JSON.stringify({ path: "docs/notes.md", contents: "Original text", language: "markdown" })
+  });
+  assert.equal(created.response.status, 201);
+  assert.equal(created.body.artifact.version, 1);
+  const readBack = await json(`/api/projects/${truckingProject.id}/artifacts/file?path=docs%2Fnotes.md`);
+  assert.equal(readBack.body.artifact.contents, "Original text");
+  const saved = await json(`/api/projects/${truckingProject.id}/artifacts/file?path=docs%2Fnotes.md`, {
+    method: "PUT",
+    body: JSON.stringify({ contents: "Updated text", expectedVersion: 1 })
+  });
+  assert.equal(saved.body.artifact.version, 2);
+  const staleSave = await json(`/api/projects/${truckingProject.id}/artifacts/file?path=docs%2Fnotes.md`, {
+    method: "PUT",
+    body: JSON.stringify({ contents: "Lost update", expectedVersion: 1 })
+  });
+  assert.equal(staleSave.response.status, 409);
+
+  const history = await json(`/api/projects/${truckingProject.id}/artifacts/history?path=docs%2Fnotes.md`);
+  assert.deepEqual(history.body.history.map((version) => version.version), [2, 1]);
+  const restored = await json(`/api/projects/${truckingProject.id}/artifacts/restore`, {
+    method: "POST",
+    body: JSON.stringify({ path: "docs/notes.md", version: 1, expectedVersion: 2 })
+  });
+  assert.equal(restored.body.artifact.contents, "Original text");
+  assert.equal(restored.body.artifact.version, 3);
+
+  const duplicate = await json(`/api/projects/${truckingProject.id}/artifacts/duplicate`, {
+    method: "POST",
+    body: JSON.stringify({ fromPath: "docs/notes.md", toPath: "docs/copy.md" })
+  });
+  assert.equal(duplicate.response.status, 201);
+  const renamed = await json(`/api/projects/${truckingProject.id}/artifacts/rename`, {
+    method: "POST",
+    body: JSON.stringify({
+      kind: "file",
+      fromPath: "docs/copy.md",
+      toPath: "docs/renamed.md",
+      expectedVersion: 1
+    })
+  });
+  assert.equal(renamed.body.artifact.path, "docs/renamed.md");
+
+  const protectedDelete = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts/file?path=package.json&version=1`, {
+    method: "DELETE",
+    headers
+  });
+  assert.equal(protectedDelete.status, 403);
+  const traversal = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts/file?path=${encodeURIComponent("../outside")}`, {
+    headers: { cookie: owner.cookie }
+  });
+  assert.equal(traversal.status, 400);
+
+  const newFolder = await json(`/api/projects/${truckingProject.id}/artifacts/directories`, {
+    method: "POST",
+    body: JSON.stringify({ path: "scratch/nested" })
+  });
+  assert.equal(newFolder.response.status, 201);
+  const folderRename = await json(`/api/projects/${truckingProject.id}/artifacts/directories`, {
+    method: "PATCH",
+    body: JSON.stringify({ fromPath: "scratch", toPath: "archive" })
+  });
+  assert.equal(folderRename.response.status, 200);
+  const folderDelete = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts/directories?path=archive`, {
+    method: "DELETE",
+    headers
+  });
+  assert.equal(folderDelete.status, 200);
+
+  const download = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts/file?path=docs%2Fnotes.md&download=1`, {
+    headers: { cookie: owner.cookie }
+  });
+  assert.equal(await download.text(), "Original text");
+  const exportResponse = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts/export`, {
+    headers: { cookie: owner.cookie }
+  });
+  const exported = await exportResponse.json();
+  assert.ok(exported.files.some((file) => file.path === "docs/notes.md" && file.contents === "Original text"));
+  const audit = await json(`/api/projects/${truckingProject.id}/artifacts/audit`);
+  assert.ok(audit.body.audit.some((entry) => entry.action === "restored"));
+
+  const deleteFile = await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts/file?path=docs%2Frenamed.md&version=1`, {
+    method: "DELETE",
+    headers
+  });
+  assert.equal(deleteFile.status, 200);
+  assert.equal((await json(`/api/projects/${truckingProject.id}/artifacts/file?path=docs%2Frenamed.md`)).response.status, 404);
 });
 
 test("project endpoints reject invalid content types and unmatched decisions", async () => {
