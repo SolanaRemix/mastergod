@@ -197,12 +197,16 @@ signoutButton.addEventListener("click", async () => {
   try {
     await api("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
     draftProject = null;
+    promptInput.value = "";
+    requirementList.replaceChildren();
+    reviewSection.classList.add("hidden");
     appWorkspace.classList.add("hidden");
     authSection.classList.remove("hidden");
     signoutButton.classList.add("hidden");
     projectsList.replaceChildren();
     projectCount.textContent = "0 projects";
     healthLabel.textContent = "Local workspace · Sign in required";
+    clearError();
     liveRegion.textContent = "You have signed out.";
   } catch (error) {
     showError(error.message);
