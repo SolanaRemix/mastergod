@@ -499,6 +499,14 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         return sendJson(response, 405, { error: "Agent task operation is not supported." });
       }
 
+      const executionRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/execution$/);
+      if (request.method === "GET" && executionRoute) {
+        const execution = await store.getAgenticExecution(executionRoute[1], request.authenticatedUser.id);
+        return execution
+          ? sendJson(response, 200, { execution, status: "VERIFIED" })
+          : sendJson(response, 404, { error: "Project execution not found." });
+      }
+
       const projectGenerationRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/generate$/);
       if (request.method === "POST" && projectGenerationRoute) {
         if (!allowGameCreation(request.authenticatedUser.id)) {

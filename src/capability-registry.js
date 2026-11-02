@@ -14,6 +14,7 @@ const BASE_CAPABILITIES = [
   "system-architecture",
   "user-experience",
   "data-modeling",
+  "ui-generation",
   "backend-development",
   "frontend-development",
   "test-engineering",
@@ -31,6 +32,8 @@ function isCapabilityDescriptor(agent) {
     && Array.isArray(agent.capabilities)
     && agent.capabilities.length > 0
     && agent.capabilities.every((capability) => typeof capability === "string")
+    && Array.isArray(agent.keywords)
+    && agent.keywords.every((keyword) => typeof keyword === "string" && keyword.trim().length >= 2)
     && Array.isArray(agent.domains)
     && Array.isArray(agent.supportedLanguages)
     && Array.isArray(agent.availableTools)
@@ -63,6 +66,11 @@ class AgentCapabilityRegistry {
     return [...this.agents.values()].map((agent) => structuredClone(agent));
   }
 
+  get(agentId) {
+    const agent = this.agents.get(agentId);
+    return agent ? structuredClone(agent) : null;
+  }
+
   findForCapability(capability, domain) {
     return [...this.agents.values()]
       .filter((agent) => agent.capabilities.includes(capability)
@@ -81,7 +89,10 @@ class AgentCapabilityRegistry {
     const matched = CAPABILITY_RULES
       .filter((rule) => rule.pattern.test(requirementText))
       .map(({ capability }) => capability);
-    const requestedCapabilities = [...new Set([...BASE_CAPABILITIES, ...matched])];
+    const customMatches = [...this.agents.values()]
+      .filter((agent) => agent.keywords.some((keyword) => requirementText.toLowerCase().includes(keyword.toLowerCase())))
+      .flatMap((agent) => agent.capabilities);
+    const requestedCapabilities = [...new Set([...BASE_CAPABILITIES, ...matched, ...customMatches])];
     const assignments = [];
     const capabilityGaps = [];
     for (const capability of requestedCapabilities) {

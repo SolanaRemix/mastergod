@@ -18,12 +18,13 @@ type GeneratorStore = {
 };
 
 type Orchestrator = {
-  persistGraph(projectId: string, ownerId: string, tasks: any[]): Promise<any[] | null>;
+  persistGraph(projectId: string, ownerId: string, tasks: any[], execution?: Record<string, unknown>): Promise<any[] | null>;
 };
 
 const { createHash } = require("node:crypto");
 const { featureListForProject } = require("../artifacts");
-const { getAgent } = require("../agents");
+const { agents, getAgent } = require("../agents");
+const { AgentCapabilityRegistry } = require("../capability-registry");
 
 function assertBlueprint(project: BlueprintProject, projectId: string, ownerId: string): Requirement[] {
   if (!project || project.id !== projectId || project.ownerId !== ownerId) {
@@ -91,16 +92,17 @@ function projectTypeFor(project: BlueprintProject): string {
   return "general";
 }
 
-function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations: boolean, hasAssets: boolean) {
+function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations: boolean, hasAssets: boolean, requestText = "") {
   const tasks = [
-    { key: "architecture", title: "Architecture and technical blueprint", agentId: "systems-architect", dependencies: [] },
-    { key: "ux", title: "User journeys and accessible UX", agentId: "ux-research", dependencies: [] },
-    { key: "database", title: "Data model and persistence design", agentId: "database-engineer", dependencies: ["architecture"] }
+    { key: "architecture", title: "Architecture and technical blueprint", agentId: "systems-architect", capability: "system-architecture", dependencies: [] },
+    { key: "ux", title: "User journeys and accessible UX", agentId: "ux-research", capability: "user-experience", dependencies: [] },
+    { key: "database", title: "Data model and persistence design", agentId: "database-engineer", capability: "data-modeling", dependencies: ["architecture"] }
   ];
   if (hasAuth) tasks.push({
     key: "authentication",
     title: "Roles, identity, and permissions design",
     agentId: "authentication",
+    capability: "authentication-design",
     dependencies: ["architecture", "database"]
   });
   const domainAgent = projectType === "conversational" ? "model-router" : "backend-engineer";
@@ -119,46 +121,72 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
               ? "Conversation and model-routing design"
               : "Core application workflows",
     agentId: domainAgent,
+    capability: projectType === "conversational" ? "model-routing" : "backend-development",
     dependencies: ["architecture", "database"]
   });
   tasks.push({
     key: "ui",
     title: "Page and component design",
     agentId: "ui-generator",
+    capability: "ui-generation",
     dependencies: ["architecture", "ux"]
   });
   tasks.push({
     key: "frontend",
     title: projectType === "game" ? "Game interface and controls" : "Interactive frontend implementation",
     agentId: "frontend-engineer",
+    capability: "frontend-development",
     dependencies: ["domain", "ui"]
   });
   if (hasAssets || projectType === "game") tasks.push({
     key: "assets",
     title: "Visual asset requirements and generation plan",
     agentId: "asset-generator",
+    capability: "asset-requirements",
     dependencies: ["ux"]
   });
   if (includeIntegrations) tasks.push({
     key: "integrations",
     title: projectType === "ecommerce" ? "Payment and commerce integrations" : "External service integration plan",
     agentId: "integration",
+    capability: "external-integrations",
     dependencies: ["domain"]
   });
+  if (/\b(automations?|workflows?|triggers?|schedulers?)\b/i.test(requestText)) {
+    tasks.push({
+      key: "workflow",
+      title: "Workflow triggers, actions, and recovery design",
+      agentId: "workflow-automation",
+      capability: "workflow-automation",
+      dependencies: ["architecture", "database"]
+    });
+  }
+  if (/\b(models?|providers?|LLMs?|AI|artificial intelligence|RAG|agents?)\b/i.test(requestText)
+    && projectType !== "conversational") {
+    tasks.push({
+      key: "model-routing",
+      title: "AI model capabilities and routing design",
+      agentId: "model-router",
+      capability: "model-routing",
+      dependencies: ["architecture"]
+    });
+  }
   tasks.push(
     {
       key: "testing",
       title: "Automated acceptance and integration tests",
       agentId: "testing",
-      dependencies: ["domain", "frontend", ...(includeIntegrations ? ["integrations"] : [])]
+      capability: "test-engineering",
+      dependencies: ["domain", "frontend", ...(includeIntegrations ? ["integrations"] : []), ...(tasks.some((task) => task.key === "workflow") ? ["workflow"] : [])]
     },
-    { key: "security", title: "Security and authorization review", agentId: "security", dependencies: ["testing", ...(hasAuth ? ["authentication"] : [])] },
-    { key: "accessibility", title: "Keyboard, screen-reader, and responsive verification", agentId: "accessibility", dependencies: ["frontend"] },
-    { key: "documentation", title: "User and operator documentation", agentId: "documentation", dependencies: ["testing"] },
+    { key: "security", title: "Security and authorization review", agentId: "security", capability: "security-review", dependencies: ["testing", ...(hasAuth ? ["authentication"] : [])] },
+    { key: "accessibility", title: "Keyboard, screen-reader, and responsive verification", agentId: "accessibility", capability: "accessibility-review", dependencies: ["frontend"] },
+    { key: "documentation", title: "User and operator documentation", agentId: "documentation", capability: "documentation", dependencies: ["testing"] },
     {
       key: "release",
       title: "Release readiness and deployment checks",
       agentId: "release-manager",
+      capability: "release-management",
       dependencies: ["security", "accessibility", "documentation"]
     }
   );
@@ -168,10 +196,12 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
 class ProjectGenerator {
   store: GeneratorStore;
   orchestrator: Orchestrator;
+  registry: any;
 
-  constructor(store: GeneratorStore, orchestrator: Orchestrator) {
+  constructor(store: GeneratorStore, orchestrator: Orchestrator, registry = new AgentCapabilityRegistry(agents)) {
     this.store = store;
     this.orchestrator = orchestrator;
+    this.registry = registry;
   }
 
   async generate(projectId: string, ownerId: string): Promise<Record<string, unknown> | null> {
@@ -194,10 +224,24 @@ class ProjectGenerator {
       requirements
     });
     const generationId = createHash("sha256").update(generationPayload).digest("hex").slice(0, 20);
-    const definitions = taskDefinitions(projectType, hasAuth, hasIntegrations, hasAssets);
+    const capabilityPlan = this.registry.discover(requirements, projectType);
+    const definitions = taskDefinitions(projectType, hasAuth, hasIntegrations, hasAssets, text) as any[];
+    const assignedCapabilities = new Set(definitions.map((definition) => definition.capability));
+    for (const assignment of capabilityPlan.assignments) {
+      if (assignedCapabilities.has(assignment.capability)) continue;
+      assignedCapabilities.add(assignment.capability);
+      definitions.push({
+        key: `cap-${assignment.capability.replace(/[^a-z0-9-]/gi, "-").slice(0, 60)}`,
+        title: `${assignment.agentName}: ${assignment.capability} requirements`,
+        agentId: assignment.agentId,
+        capability: assignment.capability,
+        dependencies: ["architecture", "database"]
+      });
+    }
     const ids = new Map(definitions.map((task) => [task.key, `${generationId}-${task.key}`]));
     const tasks = definitions.map((definition) => {
-      const agent = getAgent(definition.agentId);
+      const assignment = capabilityPlan.assignments.find((candidate: any) => candidate.capability === definition.capability);
+      const agent = (assignment && this.registry.get(assignment.agentId)) || getAgent(definition.agentId);
       if (!agent) throw new Error(`Unknown agent contract: ${definition.agentId}.`);
       return {
         taskId: ids.get(definition.key),
@@ -215,14 +259,17 @@ class ProjectGenerator {
           originalRequest: project.originalRequest,
           blueprintVersion: blueprint.blueprintVersion,
           requirements,
+          requirementIds: requirements.map((requirement) => requirement.id),
+          capability: definition.capability,
+          assignmentAvailability: assignment?.availability || agent.availability,
           relevantBlueprint: {
             roles: Array.isArray(blueprint.roles) ? blueprint.roles : [],
             pages: Array.isArray(blueprint.pages) ? blueprint.pages : [],
             dataEntities: Array.isArray(blueprint.dataEntities) ? blueprint.dataEntities : [],
             integrations: Array.isArray(blueprint.integrations) ? blueprint.integrations : []
           },
-          outputContract: agent.outputContract,
-          securityConstraints: agent.securityConstraints
+          outputContract: agent.outputContract || agent.outputSchema,
+          securityConstraints: agent.securityConstraints || agent.securityPermissions || []
         },
         timeoutSeconds: 300,
         maxAttempts: 2,
@@ -235,12 +282,36 @@ class ProjectGenerator {
         updatedAt: new Date().toISOString()
       };
     });
-    const persisted = await this.orchestrator.persistGraph(projectId, ownerId, tasks);
+    const execution = {
+      requestId: generationId,
+      projectId,
+      originalPrompt: project.originalRequest,
+      requirements: requirements.map((requirement) => ({ id: requirement.id, text: requirement.text })),
+      blueprintVersion: blueprint.blueprintVersion,
+      selectedAgents: capabilityPlan.assignments,
+      createdAgents: [],
+      modelAssignments: [],
+      taskGraph: tasks.map((task) => ({
+        taskId: task.taskId,
+        agentId: task.agentId,
+        requirementIds: requirements.map((requirement) => requirement.id),
+        dependencies: task.dependencies
+      })),
+      artifacts: [],
+      approvals: [{ type: "blueprint", status: "APPROVED" }],
+      testResults: [],
+      capabilityGaps: capabilityPlan.capabilityGaps,
+      status: capabilityPlan.capabilityGaps.length ? "blocked" : "executing"
+    };
+    const persisted = await this.orchestrator.persistGraph(projectId, ownerId, tasks, execution);
     if (!persisted) return null;
     return {
       status: "IMPLEMENTED_UNVERIFIED",
       projectType,
       generationId,
+      selectedAgents: capabilityPlan.assignments,
+      capabilityGaps: capabilityPlan.capabilityGaps,
+      execution,
       taskCount: persisted.length,
       executionStatus: persisted.some((task) => task.status === "QUEUED")
         ? "QUEUED"

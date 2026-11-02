@@ -189,6 +189,17 @@ class PersistenceStore {
       );
       CREATE INDEX IF NOT EXISTS agent_task_events_project_task
         ON agent_task_events(owner_id, project_id, task_id, created_at);
+      CREATE TABLE IF NOT EXISTS agentic_executions (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        generation_id TEXT NOT NULL,
+        execution TEXT NOT NULL CHECK (json_valid(execution)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, generation_id)
+      );
+      CREATE INDEX IF NOT EXISTS agentic_executions_owner_project
+        ON agentic_executions(owner_id, project_id, updated_at DESC);
       CREATE TABLE IF NOT EXISTS migrations (
         version INTEGER PRIMARY KEY NOT NULL,
         applied_at TEXT NOT NULL
@@ -1206,7 +1217,7 @@ class PersistenceStore {
     };
   }
 
-  async createAgentTasks(projectId, ownerId, tasks) {
+  async createAgentTasks(projectId, ownerId, tasks, execution = null) {
     await this.initialize();
     return this.transaction(() => {
       if (!this.database.prepare(`
@@ -1277,8 +1288,41 @@ class PersistenceStore {
         error.code = "EXECUTION_GRAPH_CONFLICT";
         throw error;
       }
+      if (execution) {
+        if (execution.projectId !== projectId || execution.requestId !== generationId
+          || !["planning", "awaiting_approval", "executing", "integrating", "testing", "completed", "failed", "blocked"].includes(execution.status)) {
+          throw new Error("Execution snapshot is invalid or does not match its task graph.");
+        }
+        const now = new Date().toISOString();
+        this.database.prepare(`
+          INSERT OR IGNORE INTO agentic_executions (project_id, owner_id, generation_id, execution, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(projectId, ownerId, generationId, JSON.stringify(execution), now, now);
+        const snapshot = this.database.prepare(`
+          SELECT execution FROM agentic_executions
+          WHERE project_id = ? AND owner_id = ? AND generation_id = ?
+        `).get(projectId, ownerId, generationId);
+        if (!snapshot || JSON.parse(snapshot.execution).requestId !== generationId) {
+          const error = new Error("Execution snapshot did not pass database read-back verification.");
+          error.code = "EXECUTION_SNAPSHOT_CONFLICT";
+          throw error;
+        }
+      }
       return this.listAgentTasksSync(projectId, ownerId);
     });
+  }
+
+  async getAgenticExecution(projectId, ownerId) {
+    await this.initialize();
+    if (!this.database.prepare(`
+      SELECT 1 FROM projects WHERE id = ? AND owner_id = ?
+    `).get(projectId, ownerId)) return null;
+    const row = this.database.prepare(`
+      SELECT execution FROM agentic_executions
+      WHERE project_id = ? AND owner_id = ?
+      ORDER BY updated_at DESC LIMIT 1
+    `).get(projectId, ownerId);
+    return row ? JSON.parse(row.execution) : null;
   }
 
   listAgentTasksSync(projectId, ownerId) {

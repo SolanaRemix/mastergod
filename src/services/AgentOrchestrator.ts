@@ -27,7 +27,7 @@ type TaskHandler = (input: Record<string, unknown>, context: {
 }) => Promise<Record<string, unknown>>;
 
 type TaskStore = {
-  createAgentTasks(projectId: string, ownerId: string, tasks: AgentTask[]): Promise<AgentTask[] | null>;
+  createAgentTasks(projectId: string, ownerId: string, tasks: AgentTask[], execution?: Record<string, unknown>): Promise<AgentTask[] | null>;
   listAgentTasks(projectId: string, ownerId: string): Promise<AgentTask[] | null>;
   getAgentTask(projectId: string, ownerId: string, taskId: string): Promise<AgentTask | null>;
   transitionAgentTask(
@@ -112,7 +112,7 @@ class AgentOrchestrator {
     this.handlers.set(agentId, handler);
   }
 
-  async persistGraph(projectId: string, ownerId: string, tasks: AgentTask[]): Promise<AgentTask[] | null> {
+  async persistGraph(projectId: string, ownerId: string, tasks: AgentTask[], execution?: Record<string, unknown>): Promise<AgentTask[] | null> {
     const handlers = this.handlers;
     const now = new Date().toISOString();
     const prepared = tasks.map((task) => {
@@ -133,7 +133,7 @@ class AgentOrchestrator {
         updatedAt: now
       };
     });
-    return this.store.createAgentTasks(projectId, ownerId, prepared);
+    return this.store.createAgentTasks(projectId, ownerId, prepared, execution);
   }
 
   listTasks(projectId: string, ownerId: string): Promise<AgentTask[] | null> {
