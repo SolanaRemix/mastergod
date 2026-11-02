@@ -268,6 +268,30 @@ class PersistenceStore {
     });
   }
 
+  async promoteAdmin(user) {
+    await this.initialize();
+    return this.transaction(() => {
+      const result = this.database.prepare(`
+        UPDATE users SET role = 'admin'
+        WHERE id = ? AND email = ? COLLATE NOCASE
+          AND salt = ? AND password_hash = ?
+      `).run(user.id, user.email, user.salt, user.passwordHash);
+      return Number(result.changes) === 1;
+    });
+  }
+
+  async getAdminSummary() {
+    await this.initialize();
+    return {
+      users: this.database.prepare("SELECT COUNT(*) AS count FROM users").get().count,
+      projects: this.database.prepare("SELECT COUNT(*) AS count FROM projects").get().count,
+      activeSessions: this.database.prepare("SELECT COUNT(*) AS count FROM sessions WHERE expires_at > ?")
+        .get(new Date().toISOString()).count,
+      passwordResetTokens: this.database.prepare("SELECT COUNT(*) AS count FROM password_resets WHERE expires_at > ?")
+        .get(new Date().toISOString()).count
+    };
+  }
+
   async createProject(project) {
     await this.initialize();
     this.database.prepare(`
@@ -342,6 +366,7 @@ class AuthStore {
   deleteSession(tokenHash) { return this.persistence.deleteSession(tokenHash); }
   createPasswordReset(reset) { return this.persistence.createPasswordReset(reset); }
   consumePasswordReset(tokenHash, credentials) { return this.persistence.consumePasswordReset(tokenHash, credentials); }
+  promoteAdmin(user) { return this.persistence.promoteAdmin(user); }
 }
 
 class ProjectStore {
@@ -356,6 +381,7 @@ class ProjectStore {
   get(id) { return this.persistence.getProject(id); }
   list(ownerId) { return this.persistence.listProjects(ownerId); }
   update(project) { return this.persistence.updateProject(project); }
+  getAdminSummary() { return this.persistence.getAdminSummary(); }
 }
 
 module.exports = { AuthStore, PersistenceStore, ProjectStore };

@@ -133,7 +133,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
   const auth = new AuthService(authStore);
   const secureCookies = process.env.NODE_ENV === "production";
   const sessionCookieName = secureCookies ? "__Host-gods_session" : "gods_session";
-  const allowRegistration = createRateLimiter({ limit: 10, windowMs: 60 * 60 * 1000 });
+  const allowRegistration = createRateLimiter({ limit: 25, windowMs: 60 * 60 * 1000 });
   const allowLogin = createRateLimiter({ limit: 20, windowMs: 15 * 60 * 1000 });
 
   const server = http.createServer(async (request, response) => {
@@ -168,6 +168,16 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         const session = await auth.getSession(token);
         if (!session) return sendJson(response, 401, { error: "Sign in to continue." });
         return sendJson(response, 200, { user: session.user, expiresAt: session.expiresAt });
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/admin/summary") {
+        const session = await auth.getSession(getCookie(request, sessionCookieName));
+        if (!session) return sendJson(response, 401, { error: "Sign in to continue." });
+        if (session.user.role !== "admin") return sendJson(response, 403, { error: "Administrator access is required." });
+        return sendJson(response, 200, {
+          status: "VERIFIED",
+          summary: await store.getAdminSummary()
+        });
       }
 
       if (request.method === "POST" && [

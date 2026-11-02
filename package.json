@@ -5,6 +5,7 @@
   "description": "A beginner-first project planner with persisted blueprints and honest agent task tracking.",
   "scripts": {
     "start": "node server.js",
+    "provision-admin": "node scripts/provision-admin.js",
     "test": "node --test"
   },
   "engines": {

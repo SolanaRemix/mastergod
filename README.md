@@ -22,6 +22,10 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). Create an account with a pa
 
 Project APIs require an authenticated account and only return projects owned by that account. New accounts are regular users; matching an email address never grants administrator rights.
 
+### Provision the super administrator
+
+After the intended account has been created and its email identity has been independently verified by the operator, run `npm run provision-admin` in an interactive terminal on the host. The command accepts only `GODS_SUPER_ADMIN_EMAIL` (defaults to `gxqstudio@gmail.com`), asks for the account password without echoing it, verifies that password against the stored scrypt hash, and performs a conditional server-side role update. Never put passwords in command arguments or grant admin based on an email string alone. `GET /api/admin/summary` is available only to a currently authenticated, provisioned administrator. Email identity verification is an operator procedure, not an implemented email integration.
+
 The browser does not call an AI service. Discovery is deterministic text splitting, not AI interpretation. Project-specific blueprints are JSON documents (a valid YAML 1.2 subset) stored with a `.yaml` extension to avoid an unverified YAML dependency. The root [`gods.blueprint.yaml`](gods.blueprint.yaml) records the current product scope and unmet release gates.
 
 ## API
@@ -33,6 +37,7 @@ The browser does not call an AI service. Discovery is deterministic text splitti
 - `POST /api/auth/logout` — revoke the current session.
 - `POST /api/auth/request-password-reset` — returns `503 BLOCKED` until an email provider can securely deliver recovery links.
 - `POST /api/auth/reset-password` — consumes a delivered single-use token, changes the password, and revokes existing sessions.
+- `GET /api/admin/summary` — operator-provisioned administrators only.
 - `GET /api/agents` — role names and input/output contracts.
 - `GET /api/projects` — local project records.
 - `POST /api/projects` — create a draft from `{ "prompt": "..." }`.
@@ -50,4 +55,4 @@ npm test
 
 ## Delivery status
 
-The implemented local planning workflow, SQLite persistence, password authentication, session revocation, and per-account project isolation have focused automated coverage. The complete mission is **not production-ready**: model/provider adapters, agent execution, code generation, administrator provisioning, email verification/recovery, distributed rate limiting, managed backups, integrations, tests of generated applications, and verified deployment are not present. The authoritative baseline and blockers are listed in [`gods.blueprint.yaml`](gods.blueprint.yaml); no external connection or successful deployment is claimed.
+The implemented local planning workflow, SQLite persistence, password authentication, session revocation, per-account project isolation, explicit super-admin provisioning, and an admin-only summary route have focused automated coverage. The complete mission is **not production-ready**: model/provider adapters, agent execution, code generation, automated email verification/recovery, distributed rate limiting, managed backups, integrations, tests of generated applications, and verified deployment are not present. The authoritative baseline and blockers are listed in [`gods.blueprint.yaml`](gods.blueprint.yaml); no external connection or successful deployment is claimed.

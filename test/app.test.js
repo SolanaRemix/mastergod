@@ -227,6 +227,37 @@ test("authentication enforces password policy, unique email, and same-origin mut
   assert.equal((await recovery.json()).status, "BLOCKED");
 });
 
+test("admin access requires explicit password-verified provisioning for the configured identity", async () => {
+  const account = await registerAccount("gxqstudio@gmail.com");
+  const denied = await fetch(`${baseUrl}/api/admin/summary`, { headers: { cookie: account.cookie } });
+  assert.equal(denied.status, 403);
+
+  const { provisionAdmin } = require("../scripts/provision-admin");
+  await assert.rejects(() => provisionAdmin({
+    dataDir: directory,
+    email: "attacker@example.com",
+    password: "A-long-test-password-123!",
+    targetEmail: "gxqstudio@gmail.com"
+  }), /Only the configured super-admin account/);
+  await assert.rejects(() => provisionAdmin({
+    dataDir: directory,
+    email: "gxqstudio@gmail.com",
+    password: "wrong-password",
+    targetEmail: "gxqstudio@gmail.com"
+  }), /could not be verified/);
+
+  const admin = await provisionAdmin({
+    dataDir: directory,
+    email: "gxqstudio@gmail.com",
+    password: "A-long-test-password-123!",
+    targetEmail: "gxqstudio@gmail.com"
+  });
+  assert.equal(admin.role, "admin");
+  const summary = await fetch(`${baseUrl}/api/admin/summary`, { headers: { cookie: account.cookie } });
+  assert.equal(summary.status, 200);
+  assert.equal((await summary.json()).summary.users > 0, true);
+});
+
 test("project creation, approval, blueprint download, and persistence work end to end", async () => {
   const account = await registerAccount("project-owner@example.com");
   assert.equal(account.response.status, 201);
