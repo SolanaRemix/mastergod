@@ -163,6 +163,47 @@ function renderProject(project) {
   card.append(blueprintLink);
 
   if (project.status !== "DRAFT") {
+    const executionSection = document.createElement("section");
+    executionSection.className = "agent-task-panel flash-glow-card";
+    executionSection.dataset.glow = "purple";
+    const executionHeading = document.createElement("h4");
+    executionHeading.textContent = "Agent execution graph";
+    const executionDescription = document.createElement("p");
+    executionDescription.className = "helper-text";
+    executionDescription.textContent = "Create traceable tasks from this approved blueprint. Tasks remain blocked until a real worker is configured.";
+    const createGraph = addButton("Create blueprint task graph", "primary-button");
+    const executionTasks = document.createElement("div");
+    executionTasks.className = "agent-task-list";
+    createGraph.addEventListener("click", async () => {
+      createGraph.disabled = true;
+      try {
+        const result = await api(`/api/projects/${encodeURIComponent(project.id)}/generate`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
+        executionDescription.textContent = result.executionNote;
+        createGraph.classList.add("hidden");
+        renderAgentTasks(project, executionTasks, result.tasks);
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        createGraph.disabled = false;
+      }
+    });
+    executionSection.append(executionHeading, executionDescription, createGraph, executionTasks);
+    card.append(executionSection);
+    api(`/api/projects/${encodeURIComponent(project.id)}/tasks`)
+      .then(({ tasks }) => {
+        if (tasks.length) {
+          createGraph.classList.add("hidden");
+          executionDescription.textContent = tasks.some((task) => task.status === "QUEUED")
+            ? "Tasks are queued for registered workers; outcomes will be recorded with evidence."
+            : "The graph is persisted; tasks are blocked because no verified worker is registered.";
+          renderAgentTasks(project, executionTasks, tasks);
+        }
+      })
+      .catch(() => {});
+
     const artifactSection = document.createElement("section");
     artifactSection.className = "artifact-workspace flash-glow-card";
     artifactSection.dataset.glow = "cyan";
@@ -170,10 +211,9 @@ function renderProject(project) {
     artifactHeading.textContent = "Project files";
     const artifactDescription = document.createElement("p");
     artifactDescription.className = "helper-text";
-    artifactDescription.textContent = "Request-specific starter files are stored in your project database. Provider-backed generation is not configured.";
+    artifactDescription.textContent = "Create and manage files persisted in your project database. Agent generation is not available until a verified worker is configured.";
     const artifactToggle = document.createElement("button");
     artifactToggle.className = "secondary-button";
-    artifactToggle.classList.add("hidden");
     artifactToggle.type = "button";
     artifactToggle.textContent = "Open file manager";
     const fileManager = document.createElement("div");
@@ -185,41 +225,79 @@ function renderProject(project) {
         await renderArtifactManager(project, fileManager);
       }
     });
-    const generateButton = document.createElement("button");
-    generateButton.className = "primary-button artifact-generate-button";
-    generateButton.type = "button";
-    generateButton.textContent = "Generate request-specific starter files";
-    generateButton.addEventListener("click", async () => {
-      generateButton.disabled = true;
-      try {
-        const result = await api(`/api/projects/${encodeURIComponent(project.id)}/artifacts/generate`, {
-          method: "POST",
-          body: JSON.stringify({})
-        });
-        artifactDescription.textContent = `${result.files.length} files generated and read back from local storage. Status: IMPLEMENTED_UNVERIFIED. ${result.execution}.`;
-        generateButton.classList.add("hidden");
-        artifactToggle.classList.remove("hidden");
-        fileManager.classList.remove("hidden");
-        await renderArtifactManager(project, fileManager);
-      } catch (error) {
-        showError(error.message);
-      } finally {
-        generateButton.disabled = false;
-      }
-    });
-    artifactSection.append(artifactHeading, artifactDescription, generateButton, artifactToggle, fileManager);
+    artifactSection.append(artifactHeading, artifactDescription, artifactToggle, fileManager);
     card.append(artifactSection);
     api(`/api/projects/${encodeURIComponent(project.id)}/artifacts`)
       .then(({ files }) => {
         if (files.length) {
-          generateButton.classList.add("hidden");
-          artifactToggle.classList.remove("hidden");
-          artifactDescription.textContent = `${files.length} persistent files are available. Generated prototype code is not production-ready.`;
+          artifactDescription.textContent = `${files.length} project files are persisted in local storage.`;
         }
       })
       .catch(() => {});
   }
   projectsList.append(card);
+}
+
+function taskGlow(status) {
+  return ({
+    QUEUED: "purple",
+    RUNNING: "orange",
+    RETRYING: "yellow",
+    COMPLETED: "green",
+    FAILED: "red",
+    BLOCKED: "blue"
+  })[status] || "cyan";
+}
+
+function renderAgentTasks(project, container, tasks) {
+  container.replaceChildren();
+  tasks.forEach((task) => {
+    const card = document.createElement("article");
+    card.className = "agent-task-card flash-glow-card";
+    card.dataset.glow = taskGlow(task.status);
+    card.dataset.status = task.status.toLowerCase();
+    const header = document.createElement("div");
+    header.className = "agent-task-header";
+    const title = document.createElement("h5");
+    title.textContent = task.title;
+    header.append(title, makeTag(task.status, "status-pill task-status"));
+    const metadata = document.createElement("p");
+    metadata.className = "project-meta";
+    metadata.textContent = `${task.agentId} · Attempt ${task.attempt}/${task.maxAttempts} · ${task.projectType} project`;
+    card.append(header, metadata);
+    if (task.blockedReason) {
+      const reason = document.createElement("p");
+      reason.className = "task-blocked-reason";
+      reason.textContent = task.blockedReason;
+      card.append(reason);
+    }
+    const activity = document.createElement("details");
+    activity.className = "agent-task-events";
+    const summary = document.createElement("summary");
+    summary.textContent = "Execution history";
+    const events = document.createElement("ol");
+    events.className = "agent-event-list";
+    activity.append(summary, events);
+    activity.addEventListener("toggle", async () => {
+      if (!activity.open || events.childElementCount) return;
+      try {
+        const { events: history } = await api(
+          `/api/projects/${encodeURIComponent(project.id)}/tasks/${encodeURIComponent(task.taskId)}/events`
+        );
+        history.forEach((event) => {
+          const item = document.createElement("li");
+          item.textContent = `${event.fromState || "CREATED"} → ${event.toState} · ${new Date(event.createdAt).toLocaleString()}`;
+          events.append(item);
+        });
+      } catch (error) {
+        const item = document.createElement("li");
+        item.textContent = error.message;
+        events.append(item);
+      }
+    });
+    card.append(activity);
+    container.append(card);
+  });
 }
 
 function addButton(label, className = "secondary-button") {
@@ -438,7 +516,7 @@ async function renderArtifactManager(project, container, selectedPath) {
     } else {
       const empty = document.createElement("p");
       empty.className = "empty-state";
-      empty.textContent = tree.files.length ? "Choose a file to open and edit it." : "No files yet. Create a file or generate a request-specific starter.";
+      empty.textContent = tree.files.length ? "Choose a file to open and edit it." : "No files yet. Create a file to begin.";
       columns.append(empty);
     }
 

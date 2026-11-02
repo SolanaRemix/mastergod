@@ -4,11 +4,10 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const vm = require("node:vm");
 const { after, before, test } = require("node:test");
 const { approveRequirements, buildTaskGraph, createDraft, discoverRequirements } = require("../src/blueprint");
 const { agents } = require("../src/agents");
-const { generateProjectArtifacts } = require("../src/artifacts");
+const { AgentOrchestrator } = require("../src/services/AgentOrchestrator.ts");
 const { createServer } = require("../server");
 
 let directory;
@@ -96,19 +95,6 @@ test("approval rejects requirement edits that normalize to empty text", () => {
     text: "- *",
     approved: true
   }]), /non-empty text/);
-});
-
-test("request-specific scaffolds use only user-approved requirements", () => {
-  const project = createDraft("Drivers need schedules. Admins need invoices.");
-  approveRequirements(project, project.requirements.map((requirement) => ({
-    id: requirement.id,
-    text: requirement.text,
-    approved: requirement.text.startsWith("Drivers")
-  })));
-  const generated = generateProjectArtifacts(project);
-  assert.ok(generated.some((file) => file.path === "src/features/drivers.js"));
-  assert.ok(!generated.some((file) => file.path === "src/features/invoices.js"));
-  assert.ok(!generated.some((file) => file.path === "src/features/admin.js"));
 });
 
 test("agent catalog declares complete contracts without overstating provider execution", () => {
@@ -456,7 +442,7 @@ test("project data is private to its owner and unauthenticated access is denied"
   assert.equal((await fetch(`${baseUrl}/api/projects/${project.id}`, { headers: { cookie: owner.cookie } })).status, 200);
 });
 
-test("request-specific artifacts persist, enforce ownership and support versioned file operations", async () => {
+test("blueprint generation persists an agent graph and artifact files remain owner-scoped and versioned", async () => {
   const owner = await registerAccount("artifact-owner@example.com");
   const other = await registerAccount("artifact-other@example.com");
   const headers = { "content-type": "application/json", cookie: owner.cookie, origin: baseUrl };
@@ -491,42 +477,71 @@ test("request-specific artifacts persist, enforce ownership and support versione
 
   const truckingProject = await createApprovedProject("Build a trucking tool for drivers, vehicles, and invoices.");
   const bookingsProject = await createApprovedProject("Build a calendar booking app for customer appointments.");
-  const unapproved = await fetch(`${baseUrl}/api/projects/${(await (async () => {
+  const unapprovedProject = (await (async () => {
     const response = await fetch(`${baseUrl}/api/projects`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ prompt: "Build a project that needs approval before files." })
+      body: JSON.stringify({ prompt: "Build a project that requires approval before task assignment." })
     });
     return (await response.json()).project;
-  })()).id}/artifacts/generate`, { method: "POST", headers, body: JSON.stringify({}) });
+  })());
+  const unapproved = await fetch(`${baseUrl}/api/projects/${unapprovedProject.id}/generate`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({})
+  });
   assert.equal(unapproved.status, 409);
 
-  const generated = await json(`/api/projects/${truckingProject.id}/artifacts/generate`, {
+  const generated = await json(`/api/projects/${truckingProject.id}/generate`, {
     method: "POST",
     body: JSON.stringify({})
   });
   assert.equal(generated.response.status, 201);
   assert.equal(generated.body.status, "IMPLEMENTED_UNVERIFIED");
-  assert.match(generated.body.execution, /no AI agent or provider ran/);
-  assert.ok(generated.body.files.some((file) => file.path === "src/features/drivers.js"));
-  for (const artifact of generated.body.files.filter((file) => file.language === "javascript")) {
-    assert.doesNotThrow(() => new vm.Script(artifact.contents, { filename: artifact.path }));
-  }
-  const alternate = await json(`/api/projects/${bookingsProject.id}/artifacts/generate`, {
+  assert.equal(generated.body.projectType, "fleet");
+  assert.equal(generated.body.executionStatus, "BLOCKED");
+  assert.match(generated.body.executionNote, /no verified agent workers are registered/i);
+  assert.ok(generated.body.tasks.some((task) => /Fleet, driver, and load workflows/.test(task.title)));
+  assert.ok(generated.body.tasks.every((task) => task.status === "BLOCKED"));
+  const repeated = await json(`/api/projects/${truckingProject.id}/generate`, {
     method: "POST",
     body: JSON.stringify({})
   });
-  assert.ok(alternate.body.files.some((file) => file.path === "src/features/bookings.js"));
-  assert.ok(!alternate.body.files.some((file) => file.path === "src/features/drivers.js"));
+  assert.deepEqual(repeated.body.tasks.map((task) => task.taskId), generated.body.tasks.map((task) => task.taskId));
+  assert.equal(repeated.body.tasks.length, generated.body.taskCount);
+
+  const alternate = await json(`/api/projects/${bookingsProject.id}/generate`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  assert.equal(alternate.body.projectType, "booking");
+  assert.ok(alternate.body.tasks.some((task) => /Booking and scheduling workflows/.test(task.title)));
+  const noWorker = await json(`/api/projects/${truckingProject.id}/tasks/${encodeURIComponent(generated.body.tasks[0].taskId)}/run`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  assert.equal(noWorker.response.status, 409);
+  assert.equal(noWorker.body.task.status, "BLOCKED");
 
   const ownerTree = await json(`/api/projects/${truckingProject.id}/artifacts`);
   assert.equal(ownerTree.response.status, 200);
-  assert.ok(ownerTree.body.files.length > 4);
-  assert.ok(ownerTree.body.directories.includes("src/features"));
+  assert.equal(ownerTree.body.files.length, 0);
   assert.equal((await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts`, {
     headers: { cookie: other.cookie }
   })).status, 404);
   assert.equal((await fetch(`${baseUrl}/api/projects/${truckingProject.id}/artifacts`)).status, 401);
+
+  const retiredGenerator = await json(`/api/projects/${truckingProject.id}/artifacts/generate`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  assert.equal(retiredGenerator.response.status, 410);
+
+  const protectedFile = await json(`/api/projects/${truckingProject.id}/artifacts/files`, {
+    method: "POST",
+    body: JSON.stringify({ path: "package.json", contents: "{}", language: "json" })
+  });
+  assert.equal(protectedFile.response.status, 201);
 
   const created = await json(`/api/projects/${truckingProject.id}/artifacts/files`, {
     method: "POST",
@@ -636,6 +651,77 @@ test("request-specific artifacts persist, enforce ownership and support versione
   });
   assert.equal(deleteFile.status, 200);
   assert.equal((await json(`/api/projects/${truckingProject.id}/artifacts/file?path=docs%2Frenamed.md`)).response.status, 404);
+});
+
+test("agent task state machine persists retries and prevents repeat execution after completion", async () => {
+  const account = await registerAccount("orchestrator@example.com");
+  const create = await fetch(`${baseUrl}/api/projects`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: account.cookie, origin: baseUrl },
+    body: JSON.stringify({ prompt: "Build a small workflow that needs a secure automated test." })
+  });
+  const { project } = await create.json();
+  const approval = await fetch(`${baseUrl}/api/projects/${project.id}/approve`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: account.cookie, origin: baseUrl },
+    body: JSON.stringify({
+      decisions: project.requirements.map((requirement) => ({
+        id: requirement.id,
+        text: requirement.text,
+        approved: true
+      }))
+    })
+  });
+  assert.equal(approval.status, 200);
+
+  const orchestrator = new AgentOrchestrator(projectStore);
+  let executions = 0;
+  orchestrator.registerAgent("testing", async () => {
+    executions += 1;
+    if (executions === 1) throw Object.assign(new Error("Temporary provider timeout."), { code: "PROVIDER_TIMEOUT" });
+    return {
+      status: "IMPLEMENTED_UNVERIFIED",
+      artifactReferences: [],
+      evidence: ["Test handler executed and returned a structured result."],
+      failureReason: null
+    };
+  });
+  const [createdTask] = await orchestrator.persistGraph(project.id, account.result.user.id, [{
+    taskId: "test-retry-task",
+    projectId: project.id,
+    ownerId: account.result.user.id,
+    generationId: "test-generation",
+    projectType: "general",
+    title: "Run bounded tests",
+    agentId: "testing",
+    dependencies: [],
+    input: { projectId: project.id },
+    timeoutSeconds: 5,
+    maxAttempts: 2,
+    attempt: 0,
+    status: "BLOCKED",
+    blockedReason: null,
+    error: null,
+    result: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }]);
+  assert.equal(createdTask.status, "QUEUED");
+
+  const completed = await orchestrator.executeTask(project.id, account.result.user.id, createdTask.taskId);
+  assert.equal(completed.status, "COMPLETED");
+  assert.equal(completed.attempt, 2);
+  assert.equal(executions, 2);
+  assert.equal((await orchestrator.executeTask(project.id, account.result.user.id, createdTask.taskId)).attempt, 2);
+  const events = await orchestrator.listEvents(project.id, account.result.user.id, createdTask.taskId);
+  assert.deepEqual(events.map((event) => event.toState), [
+    "QUEUED",
+    "RUNNING",
+    "RETRYING",
+    "QUEUED",
+    "RUNNING",
+    "COMPLETED"
+  ]);
 });
 
 test("project endpoints reject invalid content types and unmatched decisions", async () => {

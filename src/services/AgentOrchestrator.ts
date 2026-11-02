@@ -148,6 +148,7 @@ class AgentOrchestrator {
     let task = await this.store.getAgentTask(projectId, ownerId, taskId);
     if (!task) return null;
     if (!["QUEUED", "BLOCKED", "FAILED"].includes(task.status)) return task;
+    if (task.status === "FAILED" && task.error?.retryable === false) return task;
 
     const handler = this.handlers.get(task.agentId);
     if (!handler) return task;
@@ -207,13 +208,14 @@ class AgentOrchestrator {
       }, { reason: "worker-completed", outputStatus: output.status });
     } catch (error) {
       const failure = asError(error);
+      if (failure.code === "TASK_TIMEOUT") failure.retryable = false;
       if (failure.code === "AGENT_BLOCKED") {
         return this.transition(running, "BLOCKED", {
           blockedReason: failure.message,
           error: failure
         }, { reason: "worker-reported-blocker" });
       }
-      if (running.attempt < running.maxAttempts) {
+      if (failure.retryable !== false && running.attempt < running.maxAttempts) {
         const retrying = await this.transition(running, "RETRYING", {
           error: failure
         }, { reason: "retry-scheduled", failure });

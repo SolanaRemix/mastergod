@@ -104,6 +104,7 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
     dependencies: ["architecture", "database"]
   });
   const domainAgent = projectType === "conversational" ? "model-router" : "backend-engineer";
+  const includeIntegrations = hasIntegrations || projectType === "ecommerce" || projectType === "booking";
   tasks.push({
     key: "domain",
     title: projectType === "fleet"
@@ -138,14 +139,19 @@ function taskDefinitions(projectType: string, hasAuth: boolean, hasIntegrations:
     agentId: "asset-generator",
     dependencies: ["ux"]
   });
-  if (hasIntegrations || projectType === "ecommerce" || projectType === "booking") tasks.push({
+  if (includeIntegrations) tasks.push({
     key: "integrations",
     title: projectType === "ecommerce" ? "Payment and commerce integrations" : "External service integration plan",
     agentId: "integration",
     dependencies: ["domain"]
   });
   tasks.push(
-    { key: "testing", title: "Automated acceptance and integration tests", agentId: "testing", dependencies: ["domain", "frontend"] },
+    {
+      key: "testing",
+      title: "Automated acceptance and integration tests",
+      agentId: "testing",
+      dependencies: ["domain", "frontend", ...(includeIntegrations ? ["integrations"] : [])]
+    },
     { key: "security", title: "Security and authorization review", agentId: "security", dependencies: ["testing", ...(hasAuth ? ["authentication"] : [])] },
     { key: "accessibility", title: "Keyboard, screen-reader, and responsive verification", agentId: "accessibility", dependencies: ["frontend"] },
     { key: "documentation", title: "User and operator documentation", agentId: "documentation", dependencies: ["testing"] },
@@ -177,9 +183,8 @@ class ProjectGenerator {
     const text = requirements.map((requirement) => requirement.text).join(" ");
     const features = featureListForProject(project);
     const hasAuth = /\b(users?|drivers?|accounts?|login|sign.?in|permissions?|roles?)\b/i.test(text);
-    const hasIntegrations = Array.isArray(blueprint.integrations)
-      ? blueprint.integrations.length > 0
-      : /\b(integrat|external service|API|calendar|payment|email)\b/i.test(text);
+    const hasIntegrations = (Array.isArray(blueprint.integrations) && blueprint.integrations.length > 0)
+      || /\b(integrat|external service|API|calendar|payment|email)\b/i.test(text);
     const hasAssets = features.some((feature: { slug: string }) => feature.slug === "assets")
       || /\b(images?|illustrations?|audio|music|sprites?)\b/i.test(text);
     const generationPayload = JSON.stringify({

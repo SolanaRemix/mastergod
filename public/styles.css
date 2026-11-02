@@ -130,6 +130,29 @@ textarea::placeholder { color: #74829b; }
 .artifact-workspace .secondary-button, .artifact-workspace .primary-button { min-height: 38px; width: auto; }
 .artifact-workspace a { text-decoration: none; }
 .artifact-editor > label { display: block; margin: 12px 0 6px; color: #d7e3f7; font-size: 12px; }
+.agent-task-panel { margin-top: 20px; padding: 16px; border-radius: 14px; }
+.agent-task-panel h4 { margin: 0 0 9px; }
+.agent-task-panel > .helper-text { margin: 0 0 13px; line-height: 1.6; }
+.agent-task-panel > .primary-button { width: auto; min-height: 40px; }
+.agent-task-list { display: grid; gap: 10px; margin-top: 14px; }
+.agent-task-card { min-width: 0; padding: 14px; border-radius: 12px; }
+.agent-task-card[data-status="queued"], .agent-task-card[data-status="running"],
+.agent-task-card[data-status="retrying"], .agent-task-card[data-status="completed"],
+.agent-task-card[data-status="failed"] { box-shadow: 0 0 0 1px color-mix(in srgb, var(--glow-color) 22%, transparent), 0 0 22px color-mix(in srgb, var(--glow-color) 15%, transparent); }
+.agent-task-card[data-status="running"] { border-color: var(--neon-orange); }
+.agent-task-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.agent-task-header h5 { margin: 0; font-size: 13px; line-height: 1.5; }
+.task-status { --glow-color: var(--neon-purple); flex: 0 0 auto; border-color: color-mix(in srgb, var(--glow-color) 42%, transparent); color: color-mix(in srgb, var(--glow-color) 70%, white); background: color-mix(in srgb, var(--glow-color) 10%, transparent); }
+.agent-task-card[data-status="running"] .task-status { --glow-color: var(--neon-orange); }
+.agent-task-card[data-status="retrying"] .task-status { --glow-color: var(--neon-yellow); }
+.agent-task-card[data-status="completed"] .task-status { --glow-color: var(--neon-green); }
+.agent-task-card[data-status="failed"] .task-status { --glow-color: var(--neon-red); }
+.agent-task-card[data-status="blocked"] .task-status { --glow-color: var(--neon-blue); }
+.task-blocked-reason { margin: 8px 0 0; color: #fbd38d; font-size: 11px; line-height: 1.5; }
+.agent-task-events { margin-top: 9px; color: var(--muted); font-size: 11px; }
+.agent-task-events summary { width: fit-content; color: #b7eaf3; cursor: pointer; }
+.agent-event-list { display: grid; gap: 5px; padding-left: 19px; line-height: 1.5; }
+.agent-event-list li { overflow-wrap: anywhere; }
 .game-studio { margin-top: 20px; }
 .game-details { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 22px; margin-top: 25px; }
 .game-details h3 { margin: 0; font-size: 20px; }
@@ -185,7 +208,8 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 22px
 
 .glass-panel.flash-glow-card, .project-card.flash-glow-card, .auth-form.flash-glow-card,
 .requirement-item.flash-glow-card, .game-preview-panel.flash-glow-card,
-.game-refine-form.flash-glow-card, .artifact-workspace.flash-glow-card {
+.game-refine-form.flash-glow-card, .artifact-workspace.flash-glow-card,
+.agent-task-panel.flash-glow-card, .agent-task-card.flash-glow-card {
   border-color: color-mix(in srgb, var(--glow-color) 25%, var(--glass-border));
   background: linear-gradient(145deg, rgba(20, 28, 46, .88), var(--glass-surface));
   backdrop-filter: blur(14px);

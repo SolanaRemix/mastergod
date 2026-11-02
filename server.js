@@ -4,9 +4,10 @@ const path = require("node:path");
 const { approveRequirements, createDraft, serializeBlueprint } = require("./src/blueprint");
 const { agents } = require("./src/agents");
 const { AuthService } = require("./src/auth");
-const { generateProjectArtifacts } = require("./src/artifacts");
 const { createGameProject, generatePlayableHtml, refineGameSpecification } = require("./src/game-studio");
 const { AuthStore, GameStore, ProjectStore } = require("./src/store");
+const { AgentOrchestrator } = require("./src/services/AgentOrchestrator.ts");
+const { ProjectGenerator } = require("./src/services/ProjectGenerator.ts");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY_BYTES = 64 * 1024;
@@ -162,12 +163,15 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
   const gameStore = new GameStore(dataDir);
   const authStore = new AuthStore(dataDir);
   const auth = new AuthService(authStore);
+  const orchestrator = new AgentOrchestrator(store);
+  const projectGenerator = new ProjectGenerator(store, orchestrator);
   const secureCookies = process.env.NODE_ENV === "production";
   const sessionCookieName = secureCookies ? "__Host-gods_session" : "gods_session";
   const allowRegistration = createRateLimiter({ limit: 25, windowMs: 60 * 60 * 1000 });
   const allowLogin = createRateLimiter({ limit: 20, windowMs: 15 * 60 * 1000 });
   const allowGameCreation = createRateLimiter({ limit: 8, windowMs: 60 * 60 * 1000 });
   const allowGameChanges = createRateLimiter({ limit: 60, windowMs: 60 * 60 * 1000 });
+  const allowProjectGeneration = createRateLimiter({ limit: 8, windowMs: 60 * 60 * 1000 });
   const allowArtifactChanges = createRateLimiter({ limit: 120, windowMs: 60 * 60 * 1000 });
 
   const server = http.createServer(async (request, response) => {
@@ -310,7 +314,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
       }
 
       if (request.method === "POST" && url.pathname === "/api/games") {
-        if (!allowGameCreation(request.authenticatedUser.id)) {
+        if (!allowProjectGeneration(request.authenticatedUser.id)) {
           return sendJson(response, 429, { error: "Game creation limit reached. Try again later." }, { "retry-after": "3600" });
         }
         const body = await readJson(request);
@@ -461,6 +465,52 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         return sendJson(response, 201, { project });
       }
 
+      const taskRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/tasks(?:\/([a-f0-9-]+)(?:\/(events|run))?)?$/);
+      if (taskRoute) {
+        const projectId = taskRoute[1];
+        const taskId = taskRoute[2];
+        const taskAction = taskRoute[3];
+        const ownerId = request.authenticatedUser.id;
+        if (request.method !== "GET" && !allowArtifactChanges(ownerId)) {
+          return sendJson(response, 429, { error: "Agent task activity limit reached. Try again later." }, { "retry-after": "3600" });
+        }
+        const project = await store.get(projectId);
+        if (!project || project.ownerId !== ownerId) return sendJson(response, 404, { error: "Project not found." });
+        if (request.method === "GET" && !taskId) {
+          const tasks = await orchestrator.listTasks(projectId, ownerId);
+          return sendJson(response, 200, { tasks: tasks || [], status: "VERIFIED" });
+        }
+        if (request.method === "GET" && taskId && taskAction === "events") {
+          const events = await orchestrator.listEvents(projectId, ownerId, taskId);
+          return events ? sendJson(response, 200, { events, status: "VERIFIED" })
+            : sendJson(response, 404, { error: "Agent task not found." });
+        }
+        if (request.method === "POST" && taskId && taskAction === "run") {
+          const task = await orchestrator.executeTask(projectId, ownerId, taskId);
+          if (!task) return sendJson(response, 404, { error: "Agent task not found." });
+          if (task.status === "BLOCKED") return sendJson(response, 409, {
+            task,
+            error: task.blockedReason || "This task has no registered agent worker."
+          });
+          return sendJson(response, 200, { task });
+        }
+        return sendJson(response, 405, { error: "Agent task operation is not supported." });
+      }
+
+      const projectGenerationRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/generate$/);
+      if (request.method === "POST" && projectGenerationRoute) {
+        if (!allowGameCreation(request.authenticatedUser.id)) {
+          return sendJson(response, 429, { error: "Project generation limit reached. Try again later." }, { "retry-after": "3600" });
+        }
+        const body = await readJson(request);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          return sendJson(response, 400, { error: "Generation requires a JSON object." });
+        }
+        const generated = await projectGenerator.generate(projectGenerationRoute[1], request.authenticatedUser.id);
+        return generated ? sendJson(response, 201, generated)
+          : sendJson(response, 404, { error: "Project not found." });
+      }
+
       const artifactRoute = url.pathname.match(/^\/api\/projects\/([a-f0-9]{32})\/artifacts(?:\/(generate|file|files|directories|history|audit|export|restore|rename|duplicate))?$/);
       if (artifactRoute) {
         const projectId = artifactRoute[1];
@@ -470,18 +520,9 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
           return sendJson(response, 429, { error: "File activity limit reached. Try again later." }, { "retry-after": "3600" });
         }
         if (request.method === "POST" && action === "generate") {
-          const body = await readJson(request);
-          if (!body || typeof body !== "object" || Array.isArray(body)) {
-            return sendJson(response, 400, { error: "Generation requires a JSON object." });
-          }
-          const project = await store.get(projectId);
-          if (!project || project.ownerId !== ownerId) return sendJson(response, 404, { error: "Project not found." });
-          const artifacts = await store.generateArtifacts(projectId, ownerId, generateProjectArtifacts(project));
-          if (!artifacts) return sendJson(response, 404, { error: "Project not found." });
-          return sendJson(response, 201, {
-            status: "IMPLEMENTED_UNVERIFIED",
-            execution: "local deterministic request-specific scaffold; no AI agent or provider ran",
-            files: artifacts
+          return sendJson(response, 410, {
+            status: "BLOCKED",
+            error: "Static scaffold generation has been retired. Use POST /api/projects/:id/generate to create a blueprint-derived task graph."
           });
         }
         if (request.method === "GET" && !action) {
@@ -666,7 +707,10 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         VERSION_CONFLICT: 409,
         PATH_CONFLICT: 409,
         ARTIFACTS_EXIST: 409,
-        PROJECT_NOT_APPROVED: 409
+        PROJECT_NOT_APPROVED: 409,
+        EXECUTION_GRAPH_EXISTS: 409,
+        EXECUTION_GRAPH_CONFLICT: 409,
+        INVALID_BLUEPRINT: 422
       }[error.code]);
       if (status) return sendJson(response, status, { error: error.message });
       console.error(JSON.stringify({
@@ -678,7 +722,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
     }
   });
 
-return { server, store, gameStore, authStore };
+return { server, store, gameStore, authStore, orchestrator, projectGenerator };
 }
 
 if (require.main === module) {

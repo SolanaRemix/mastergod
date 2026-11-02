@@ -557,7 +557,7 @@ class PersistenceStore {
       for (const artifact of artifacts) {
         const artifactPath = validateArtifactPath(artifact.path);
         const createdAt = artifact.generatedAt || new Date().toISOString();
-        const inserted = insert.run(
+        insert.run(
           projectId,
           ownerId,
           artifactPath,
@@ -1235,7 +1235,7 @@ class PersistenceStore {
         if (task.projectId !== projectId || task.ownerId !== ownerId || task.generationId !== generationId) {
           throw new Error("Execution graph contains inconsistent project ownership or generation identifiers.");
         }
-        insert.run(
+        const inserted = insert.run(
           projectId,
           ownerId,
           task.taskId,

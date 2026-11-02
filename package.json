@@ -4,11 +4,11 @@
   "private": true,
   "description": "A beginner-first project planner with persisted blueprints and honest agent task tracking.",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --experimental-strip-types server.js",
     "provision-admin": "node scripts/provision-admin.js",
     "check": "node scripts/check.js",
     "build": "node scripts/build.js",
-    "test": "node --test"
+    "test": "node --experimental-strip-types --test"
   },
   "engines": {
     "node": ">=22.13.0"
