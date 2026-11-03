@@ -140,3 +140,11 @@ This is a deterministic starter template, **not AI generation**. Its accepted ed
 ## Delivery status
 
 The local planning workflow, provider credential boundary, mock Product Discovery flow, SQLite persistence, password authentication, project ownership, game-project versioning/save access, sandbox preview, explicit super-admin provisioning, and deployment preflight have focused automated coverage. The complete mission is **not production-ready**: no real provider credentials or live provider verification are configured; provider-backed agents beyond Product Discovery, broad game generation, real media providers, online platform services, automated email verification/recovery, distributed rate limiting, managed backups, and production deployment remain unavailable. The authoritative status and blockers are listed in [`gods.blueprint.yaml`](gods.blueprint.yaml); mock results are not external connection evidence.
+
+## Studio features (added)
+
+Navigation drawer views: Chat (streaming SSE, markdown + syntax highlighting, multi-file attach with previews, model/agent selectors, contextual tool chips, suggested prompts), Dashboard, Agent Command Center (21 specialists, editable per user), Blueprint Editor (form ⇄ `gods.blueprint.yaml`), Build Workspace (explorer, built-in editor, live lint, format, review/auto-fix, build check, HTML preview), Git (snapshot-based branches/commits/compare/merge), Collaboration (viewer/editor/admin roles, live presence/activity), Tutorial, and an Admin dashboard (users, settings, payments ledger, API usage, ADK defaults, read-only deployment checks, security, audit).
+
+Admin: register `gxqstudio@gmail.com` first, then run `npm run provision-admin` (interactive password verification). Email alone never grants admin.
+
+Honest limits: the editor is a built-in textarea/highlight editor (CSP forbids CDN/Monaco); without a provider key chat runs in labelled local deterministic mode; payments are a manual ledger (no processor); Git history is stored snapshots, not real git/GitHub; no sandboxed terminal.
