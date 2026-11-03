@@ -1150,6 +1150,7 @@ function showWorkspace(user) {
   signoutButton.classList.remove("hidden");
   healthLabel.textContent = `Signed in · ${user.email}`;
   clearError();
+  window.GodsStudio?.mount(user);
   Promise.all([loadProjects(), loadGames(), loadProviderSettings()]).catch((error) => showError(error.message));
 }
 
@@ -1286,6 +1287,7 @@ signoutButton.addEventListener("click", async () => {
     gamePromptInput.value = "";
     requirementList.replaceChildren();
     reviewSection.classList.add("hidden");
+    window.GodsStudio?.unmount();
     appWorkspace.classList.add("hidden");
     authSection.classList.remove("hidden");
     signoutButton.classList.add("hidden");

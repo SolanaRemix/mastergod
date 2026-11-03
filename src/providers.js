@@ -435,6 +435,53 @@ class OpenAICompatibleAdapter {
     return completion;
   }
 
+  async *completeStream(configuration, { model, messages, signal, timeoutMs }) {
+    if (!Array.isArray(messages) || messages.length > 200) {
+      throw new ProviderError("PROVIDER_INVALID_RESPONSE", "Provider request does not match the supported input contract.");
+    }
+    const response = await this.request(configuration.endpoint, "chat/completions", configuration.apiKey, {
+      method: "POST",
+      body: { model, messages, stream: true },
+      signal,
+      timeoutMs: timeoutMs || 120000
+    });
+    if (!response.ok) {
+      const error = this.httpError(response.status);
+      this.discardResponse(response);
+      throw error;
+    }
+    if (!response.body) throw new ProviderError("PROVIDER_INVALID_RESPONSE", "Provider returned no stream.");
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for await (const chunk of response.body) {
+        buffer += decoder.decode(chunk, { stream: true });
+        if (buffer.length > 1024 * 1024) throw new ProviderError("PROVIDER_INVALID_RESPONSE", "Provider stream frame is too large.");
+        let boundary;
+        while ((boundary = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, boundary).trim();
+          buffer = buffer.slice(boundary + 1);
+          if (!line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (data === "[DONE]") return;
+          let parsed;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            continue;
+          }
+          const delta = parsed?.choices?.[0]?.delta?.content;
+          if (typeof delta === "string" && delta) yield delta;
+        }
+      }
+    } catch (error) {
+      if (error instanceof ProviderError) throw error;
+      throw new ProviderError("PROVIDER_NETWORK_ERROR", "Provider stream was interrupted.", { retryable: true });
+    } finally {
+      this.responseSignals.delete(response);
+    }
+  }
+
   httpError(status) {
     if (status === 401 || status === 403) return new ProviderError("PROVIDER_AUTH_FAILED", "Provider rejected credentials.", { status });
     if (status === 404) return new ProviderError("MODEL_NOT_FOUND", "Provider endpoint or model was not found.", { status });
@@ -562,6 +609,16 @@ class ProviderService {
     const configuration = await this.configuration(ownerId);
     if (!configuration) throw new ProviderError("PROVIDER_BLOCKED", "Configure a provider credential before discovering models.");
     return this.adapter.listModels(configuration);
+  }
+
+  async *streamChat(ownerId, { model, messages, signal }) {
+    const configuration = await this.configuration(ownerId);
+    if (!configuration) throw new ProviderError("PROVIDER_BLOCKED", "Configure a provider credential before using provider-backed chat.");
+    yield* this.adapter.completeStream(configuration, { model: model || configuration.model, messages, signal });
+  }
+
+  async hasConfiguration(ownerId) {
+    return Boolean(await this.store.getProviderCredential(ownerId, PROVIDER_ID));
   }
 
   async healthCheck(ownerId) {
