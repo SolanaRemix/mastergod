@@ -14,6 +14,8 @@ const { createCoreAgentHandlers } = require("./src/core-agents");
 const { inlineProjectAssets } = require("./src/project-preview");
 const { verifyProjectArtifacts } = require("./src/services/StaticBuildService");
 const { createProjectImplementationManifest } = require("./src/project-manifest");
+const { StudioStore } = require("./src/studio-store");
+const { createStudioRouter } = require("./src/studio-routes");
 const { ProviderError, ProviderService, assertProductionSecretKey, sanitizeError } = require("./src/providers");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -149,6 +151,10 @@ async function serveStatic(response, pathname) {
     "/": "index.html",
     "/app.js": "app.js",
     "/markdown-renderer.js": "markdown-renderer.js",
+    "/highlight.js": "highlight.js",
+    "/studio.js": "studio.js",
+    "/studio-workspace.js": "studio-workspace.js",
+    "/studio.css": "studio.css",
     "/styles.css": "styles.css"
   };
   const file = files[pathname];
@@ -173,6 +179,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
   const authStore = new AuthStore(dataDir);
   const auth = new AuthService(authStore);
   const providerService = new ProviderService(store, providerOptions);
+  const studio = new StudioStore(store);
   const orchestrator = new AgentOrchestrator(store);
   for (const [agentId, handler] of createCoreAgentHandlers(store, { providers: providerService })) {
     orchestrator.registerAgent(agentId, handler);
@@ -187,6 +194,15 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
   const allowProjectGeneration = createRateLimiter({ limit: 8, windowMs: 60 * 60 * 1000 });
   const allowArtifactChanges = createRateLimiter({ limit: 120, windowMs: 60 * 60 * 1000 });
   const allowProviderChanges = createRateLimiter({ limit: 30, windowMs: 60 * 60 * 1000 });
+
+  const studioRouter = createStudioRouter({
+    store,
+    studio,
+    auth,
+    providerService,
+    sessionCookieName,
+    helpers: { sendJson, readJson, getCookie, isSameOrigin, createRateLimiter }
+  });
 
   const server = http.createServer(async (request, response) => {
     try {
@@ -235,6 +251,8 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
         });
       }
 
+      if (await studioRouter(request, response, url)) return;
+
       if (request.method === "POST" && [
         "/api/auth/register",
         "/api/auth/login",
@@ -282,6 +300,12 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
 
         let user;
         let session;
+        if (url.pathname.endsWith("/register") && !(await studio.getSettings()).registrationOpen) {
+          return sendJson(response, 403, { error: "Registration is currently closed." });
+        }
+        if (url.pathname.endsWith("/login") && await studio.isEmailDisabled(String(body.email || ""))) {
+          return sendJson(response, 401, { error: "Email or password is incorrect." });
+        }
         if (url.pathname.endsWith("/register")) {
           try {
             user = await auth.register(body.email, body.password);
@@ -1031,7 +1055,7 @@ function createServer({ dataDir = process.env.GODS_DATA_DIR || path.join(__dirna
     }
   });
 
-return { server, store, gameStore, authStore, orchestrator, projectGenerator, providerService };
+return { server, store, studio, gameStore, authStore, orchestrator, projectGenerator, providerService };
 }
 
 if (require.main === module) {
